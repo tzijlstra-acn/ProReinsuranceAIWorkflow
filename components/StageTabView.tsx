@@ -315,9 +315,9 @@ export function StageTabView({ stageNumber, originalSources, parsedDataPaths, ge
             const meta = getMetadata(src.path)
             return (
               <div key={src.path} className="border border-[#D0D7E3] rounded-lg overflow-hidden">
-                <button
+                <div
                   onClick={() => setModal({ path: src.path, name: src.label, format: src.format })}
-                  className="w-full text-left p-4 hover:bg-[#F4F6F9] transition-colors"
+                  className="w-full text-left p-4 hover:bg-[#F4F6F9] transition-colors cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -336,7 +336,7 @@ export function StageTabView({ stageNumber, originalSources, parsedDataPaths, ge
                       )}
                     </div>
                     <button
-                      onClick={e => downloadFile(src.path, src.label, e)}
+                      onClick={e => { e.stopPropagation(); downloadFile(src.path, src.label, e) }}
                       className="p-1.5 rounded-md bg-[#F4F6F9] hover:bg-[#D0D7E3] text-[#4A5568] border border-[#D0D7E3] flex-shrink-0"
                       title="Download"
                     >
@@ -345,7 +345,7 @@ export function StageTabView({ stageNumber, originalSources, parsedDataPaths, ge
                       </svg>
                     </button>
                   </div>
-                </button>
+                </div>
               </div>
             )
           })}
