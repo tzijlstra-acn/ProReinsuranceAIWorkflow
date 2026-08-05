@@ -13,7 +13,6 @@ export async function POST() {
       )
     }
 
-    // Verify the state machine has progressed past the expected approval gate
     const { state: demoState } = await getCurrentState()
 
     if (run.approvalType === 'standard' && demoState === 'STANDARD_PROPOSED') {
@@ -44,17 +43,12 @@ export async function POST() {
       currentAction: 'Continuing after approval',
     })
 
-    const result = await executeFromCurrentState(baseUrl)
-    const updatedRun = createOrGetGuidedRun()
-
-    return NextResponse.json({
-      ok: true,
-      guidedRun: updatedRun,
-      paused: result.paused,
-      approvalType: result.approvalType,
-      completed: result.completed,
-      completedInThisRun: result.completedInThisRun,
+    // Fire-and-forget — client polls for progress.
+    executeFromCurrentState(baseUrl).catch(err => {
+      console.error('[Guided Run Continue async]', err)
     })
+
+    return NextResponse.json({ ok: true, continuing: true })
   } catch (err) {
     console.error('[Guided Run Continue]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

@@ -216,14 +216,19 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     patchGuidedRun({ currentStep: 1, currentAction: 'Generating guideline and control proposal', state: 'running' })
     const r = await callStageApi(baseUrl, '/api/stage/1/propose')
     if (!r.ok) {
-      patchGuidedRun({ state: 'failed', failedStep: 1, failureMessage: String(r.error ?? 'Stage 1 propose failed') })
-      throw new Error(String(r.error ?? 'Stage 1 propose failed'))
+      // Re-read state: a concurrent execution may have already advanced past this step
+      demoState = await refreshState()
+      if (!isStepComplete(1, demoState)) {
+        patchGuidedRun({ state: 'failed', failedStep: 1, failureMessage: String(r.error ?? 'Stage 1 propose failed') })
+        throw new Error(String(r.error ?? 'Stage 1 propose failed'))
+      }
+    } else {
+      demoState = await refreshState()
     }
     completedInThisRun.push(1)
     completedSteps.push(1)
     patchGuidedRun({ completedSteps })
     await sleep(1500)
-    demoState = await refreshState()
   }
 
   // ── Approval gate: standard ──────────────────────────────────────────────
@@ -238,14 +243,18 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     patchGuidedRun({ currentStep: 2, currentAction: 'Generating IaC change proposal', state: 'running' })
     const r = await callStageApi(baseUrl, '/api/stage/2/propose')
     if (!r.ok) {
-      patchGuidedRun({ state: 'failed', failedStep: 2, failureMessage: String(r.error ?? 'Stage 2 propose failed') })
-      throw new Error(String(r.error ?? 'Stage 2 propose failed'))
+      demoState = await refreshState()
+      if (!isStepComplete(2, demoState)) {
+        patchGuidedRun({ state: 'failed', failedStep: 2, failureMessage: String(r.error ?? 'Stage 2 propose failed') })
+        throw new Error(String(r.error ?? 'Stage 2 propose failed'))
+      }
+    } else {
+      demoState = await refreshState()
     }
     completedInThisRun.push(2)
     completedSteps.push(2)
     patchGuidedRun({ completedSteps })
     await sleep(1500)
-    demoState = await refreshState()
   }
 
   // ── Approval gate: iac ───────────────────────────────────────────────────
@@ -260,14 +269,18 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     patchGuidedRun({ currentStep: 3, currentAction: 'Evaluating Azure Policy compliance', state: 'running' })
     const r = await callStageApi(baseUrl, '/api/stage/3/evaluate')
     if (!r.ok) {
-      patchGuidedRun({ state: 'failed', failedStep: 3, failureMessage: String(r.error ?? 'Stage 3 evaluate failed') })
-      throw new Error(String(r.error ?? 'Stage 3 evaluate failed'))
+      demoState = await refreshState()
+      if (!isStepComplete(3, demoState)) {
+        patchGuidedRun({ state: 'failed', failedStep: 3, failureMessage: String(r.error ?? 'Stage 3 evaluate failed') })
+        throw new Error(String(r.error ?? 'Stage 3 evaluate failed'))
+      }
+    } else {
+      demoState = await refreshState()
     }
     completedInThisRun.push(3)
     completedSteps.push(3)
     patchGuidedRun({ completedSteps })
     await sleep(1500)
-    demoState = await refreshState()
   }
 
   // ── Step 4: Stage 4 update ───────────────────────────────────────────────
@@ -275,14 +288,18 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     patchGuidedRun({ currentStep: 4, currentAction: 'Updating DDCR work products', state: 'running' })
     const r = await callStageApi(baseUrl, '/api/stage/4/update')
     if (!r.ok) {
-      patchGuidedRun({ state: 'failed', failedStep: 4, failureMessage: String(r.error ?? 'Stage 4 update failed') })
-      throw new Error(String(r.error ?? 'Stage 4 update failed'))
+      demoState = await refreshState()
+      if (!isStepComplete(4, demoState)) {
+        patchGuidedRun({ state: 'failed', failedStep: 4, failureMessage: String(r.error ?? 'Stage 4 update failed') })
+        throw new Error(String(r.error ?? 'Stage 4 update failed'))
+      }
+    } else {
+      demoState = await refreshState()
     }
     completedInThisRun.push(4)
     completedSteps.push(4)
     patchGuidedRun({ completedSteps })
     await sleep(1500)
-    demoState = await refreshState()
   }
 
   // ── Step 5: Stage 5 propose ──────────────────────────────────────────────
@@ -290,14 +307,18 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     patchGuidedRun({ currentStep: 5, currentAction: 'Generating documentation updates', state: 'running' })
     const r = await callStageApi(baseUrl, '/api/stage/5/propose')
     if (!r.ok) {
-      patchGuidedRun({ state: 'failed', failedStep: 5, failureMessage: String(r.error ?? 'Stage 5 propose failed') })
-      throw new Error(String(r.error ?? 'Stage 5 propose failed'))
+      demoState = await refreshState()
+      if (!isStepComplete(5, demoState)) {
+        patchGuidedRun({ state: 'failed', failedStep: 5, failureMessage: String(r.error ?? 'Stage 5 propose failed') })
+        throw new Error(String(r.error ?? 'Stage 5 propose failed'))
+      }
+    } else {
+      demoState = await refreshState()
     }
     completedInThisRun.push(5)
     completedSteps.push(5)
     patchGuidedRun({ completedSteps })
     await sleep(1500)
-    demoState = await refreshState()
   }
 
   // ── Approval gate: docs ──────────────────────────────────────────────────
@@ -312,8 +333,11 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     patchGuidedRun({ currentStep: 6, currentAction: 'Generating evidence package', state: 'running' })
     const r = await callStageApi(baseUrl, '/api/stage/6/generate')
     if (!r.ok) {
-      patchGuidedRun({ state: 'failed', failedStep: 6, failureMessage: String(r.error ?? 'Stage 6 generate failed') })
-      throw new Error(String(r.error ?? 'Stage 6 generate failed'))
+      demoState = await refreshState()
+      if (!isStepComplete(6, demoState)) {
+        patchGuidedRun({ state: 'failed', failedStep: 6, failureMessage: String(r.error ?? 'Stage 6 generate failed') })
+        throw new Error(String(r.error ?? 'Stage 6 generate failed'))
+      }
     }
     completedInThisRun.push(6)
     completedSteps.push(6)

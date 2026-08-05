@@ -10,6 +10,10 @@ export async function POST() {
   try {
     const { state, correlationId } = await getCurrentState()
 
+    if (state === 'STANDARD_PROPOSED') {
+      // Already proposed — idempotent success (concurrent execution already completed this step)
+      return NextResponse.json({ ok: true, newState: 'STANDARD_PROPOSED', idempotent: true })
+    }
     if (state !== 'BASELINE') {
       return NextResponse.json({ error: `Cannot propose in state ${state}` }, { status: 400 })
     }

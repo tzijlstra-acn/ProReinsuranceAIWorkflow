@@ -239,6 +239,7 @@ export default function HomePage() {
   const [manualLoading, setManualLoading] = useState(false)
   const [ingestDone, setIngestDone] = useState(false)
   const [ingestLoading, setIngestLoading] = useState(false)
+  const [startPending, setStartPending] = useState(false)
 
   const stepStartRef = useRef<number>(0)
   const [elapsedMs, setElapsedMs] = useState(0)
@@ -276,9 +277,21 @@ export default function HomePage() {
         await fetchDemoState()
         clearInterval(poll)
       }
-    }, 800)
+    }, 500)
     return () => clearInterval(poll)
   }, [guidedRun?.state, fetchGuidedRun, fetchDemoState])
+
+  // Auto-advance the selected step to match where the guided run is
+  useEffect(() => {
+    if (!guidedRun) return
+    if (guidedRun.state === 'running' || guidedRun.state === 'continuing') {
+      if (guidedRun.currentStep > 0) setSelectedStep(guidedRun.currentStep)
+    } else if (guidedRun.state === 'awaiting_approval' && guidedRun.approvalType) {
+      const gateStep: Record<string, number> = { standard: 1, iac: 2, docs: 5 }
+      const step = gateStep[guidedRun.approvalType]
+      if (step) setSelectedStep(step)
+    }
+  }, [guidedRun?.currentStep, guidedRun?.state, guidedRun?.approvalType])
 
   // Scroll to approval gate when it becomes visible
   useEffect(() => {
@@ -314,8 +327,10 @@ export default function HomePage() {
 
   const startGuidedRun = async () => {
     setMessage(null)
+    setStartPending(true)
     await fetch('/api/guided-run/start', { method: 'POST' })
     await fetchGuidedRun()
+    setStartPending(false)
   }
 
   const stopGuidedRun = async () => {
@@ -474,17 +489,22 @@ export default function HomePage() {
               >
                 Stop
               </button>
+            ) : guidedRun?.state === 'awaiting_approval' ? (
+              // Don't show a Run button when waiting for approval — the gate card below is the CTA
+              null
             ) : (
               <button
                 onClick={startGuidedRun}
-                disabled={guidedRun?.state === 'completed'}
+                disabled={guidedRun?.state === 'completed' || startPending}
                 className="px-3 py-1.5 text-xs rounded font-semibold text-white disabled:opacity-40 transition-colors"
                 style={{ background: 'var(--mr-vibrant-blue)', border: 'none', cursor: 'pointer' }}
               >
-                {guidedRun?.state === 'completed'
-                  ? 'Complete'
-                  : guidedRun?.state === 'awaiting_approval'
-                  ? 'Awaiting Approval'
+                {startPending
+                  ? 'Starting…'
+                  : guidedRun?.state === 'completed'
+                  ? '✓ Complete'
+                  : guidedRun?.state === 'failed'
+                  ? 'Retry'
                   : guidedRun?.state === 'paused'
                   ? 'Resume'
                   : 'Run Guided Demo'}
@@ -512,27 +532,30 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Guided approval gate notice */}
+        {/* Guided approval gate */}
         {isAtGate && approvalMeta && (
           <div
             id="approval-gate"
-            className="mt-4 p-5 rounded-lg"
-            style={{
-              background: 'var(--mr-light-blue)',
-              border: '2px solid var(--mr-vibrant-blue)',
-              borderRadius: 'var(--radius-md)',
-            }}
+            className="mt-4 rounded-lg overflow-hidden"
+            style={{ border: '2px solid var(--mr-vibrant-blue)', borderRadius: 'var(--radius-md)' }}
           >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--mr-vibrant-blue)' }}>
-                  Human approval required
-                </p>
-                <p className="font-semibold text-base" style={{ color: 'var(--mr-midnight-blue)' }}>
+            {/* Header bar */}
+            <div className="px-5 py-2 flex items-center gap-2" style={{ background: 'var(--mr-vibrant-blue)' }}>
+              <span className="text-white text-xs font-bold uppercase tracking-widest">
+                ⏸ Workflow paused — human approval required
+              </span>
+            </div>
+            {/* Body */}
+            <div className="p-5 flex items-start justify-between gap-6" style={{ background: 'var(--mr-light-blue)' }}>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-base mb-1" style={{ color: 'var(--mr-midnight-blue)' }}>
                   {approvalMeta.title}
                 </p>
-                <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                   {approvalMeta.description}
+                </p>
+                <p className="text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>
+                  After approval the workflow will continue automatically through the remaining steps.
                 </p>
               </div>
               <button
@@ -544,12 +567,13 @@ export default function HomePage() {
                   })
                   setManualApprovalOpen(true)
                 }}
-                className="flex-shrink-0 px-5 py-2.5 text-sm font-bold rounded-md animate-pulse"
+                className="flex-shrink-0 px-6 py-3 text-sm font-bold rounded-md"
                 style={{
                   background: 'var(--mr-vibrant-blue)',
                   color: 'white',
                   border: 'none',
                   cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(51,80,184,0.35)',
                 }}
               >
                 Review &amp; Approve →
@@ -809,7 +833,7 @@ export default function HomePage() {
             <CompletionCard step={step} />
           )}
 
-          {isStepCompleted && selectedStep < 6 && (
+          {isStepCompleted && selectedStep < 6 && !isExecuting && guidedRun?.state !== 'awaiting_approval' && (
             <button
               onClick={() => setSelectedStep(s => s + 1)}
               className="ml-auto px-4 py-2 text-sm font-medium rounded transition-colors"
@@ -820,7 +844,7 @@ export default function HomePage() {
                 cursor: 'pointer',
               }}
             >
-              Continue Journey →
+              View Step {selectedStep + 1} →
             </button>
           )}
 

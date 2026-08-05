@@ -53,14 +53,20 @@ export function ApprovalModal({
         return
       }
 
-      // 2. Show confirmation state for 1.5 s
+      // 2. Call guided-run/continue (returns immediately — server fires execution async)
+      const contRes = await fetch('/api/guided-run/continue', { method: 'POST' })
+      const contData = await contRes.json() as { ok?: boolean; error?: string }
+      if (!contRes.ok || !contData.ok) {
+        setError(contData.error ?? 'Failed to continue workflow')
+        setLoading(false)
+        return
+      }
+
+      // 3. Show brief confirmation then hand control back to parent
       setModalStep('confirmed')
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      await new Promise(resolve => setTimeout(resolve, 900))
 
-      // 3. Call guided-run/continue
-      await fetch('/api/guided-run/continue', { method: 'POST' })
-
-      // 4. Notify parent (triggers page refresh / state poll)
+      // 4. Notify parent (triggers polling to pick up 'continuing' state)
       onApprove(comment, reviewer)
     } catch (err) {
       setError(String(err))
