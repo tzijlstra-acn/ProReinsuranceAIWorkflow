@@ -234,8 +234,8 @@ export default function HomePage() {
   const [message, setMessage] = useState<string | null>(null)
   const [selectedStep, setSelectedStep] = useState(1)
   const [activeTab, setActiveTab] = useState<'overview' | 'sources' | 'changes' | 'before-after' | 'evidence'>('overview')
-  const [manualApprovalOpen, setManualApprovalOpen] = useState(false)
-  const [manualApprovalConfig, setManualApprovalConfig] = useState({ title: '', desc: '', api: '' })
+  const [approvalOpen, setApprovalOpen] = useState(false)
+  const [approvalConfig, setApprovalConfig] = useState({ title: '', desc: '', api: '', guided: false })
   const [manualLoading, setManualLoading] = useState(false)
   const [ingestDone, setIngestDone] = useState(false)
   const [ingestLoading, setIngestLoading] = useState(false)
@@ -376,15 +376,15 @@ export default function HomePage() {
     }
   }
 
-  const openManualApproval = (title: string, desc: string, api: string) => {
-    setManualApprovalConfig({ title, desc, api })
-    setManualApprovalOpen(true)
+  const openApproval = (title: string, desc: string, api: string, guided = false) => {
+    setApprovalConfig({ title, desc, api, guided })
+    setApprovalOpen(true)
   }
 
-  const handleManualApproval = async (decision: 'approved' | 'rejected', comment: string, reviewer: string) => {
+  const handleApprovalAction = async (decision: 'approved' | 'rejected', comment: string, reviewer: string) => {
     setManualLoading(true)
     try {
-      const res = await fetch(manualApprovalConfig.api, {
+      const res = await fetch(approvalConfig.api, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision, reviewerComment: comment, reviewerName: reviewer }),
@@ -394,7 +394,7 @@ export default function HomePage() {
       await fetchDemoState()
     } finally {
       setManualLoading(false)
-      setManualApprovalOpen(false)
+      setApprovalOpen(false)
     }
   }
 
@@ -402,6 +402,9 @@ export default function HomePage() {
 
   const isExecuting = guidedRun?.state === 'running' || guidedRun?.state === 'continuing'
   const isAtGate = guidedRun?.state === 'awaiting_approval' && guidedRun?.approvalType != null
+  // Process is "active" any time it has been started and isn't idle/failed
+  const processActive = guidedRun !== null &&
+    guidedRun.state !== 'idle' && guidedRun.state !== 'failed' && guidedRun.state !== 'completed'
   const activeGuidedStep = guidedRun?.currentStep ?? 0
 
   const processingStepDefs = activeGuidedStep > 0 ? (STEP_PROCESSING_SEQUENCES[activeGuidedStep] ?? []) : []
@@ -449,7 +452,7 @@ export default function HomePage() {
         <div className="flex items-start justify-between mb-4">
           <div>
             <h1 className="text-base font-bold" style={{ color: 'var(--mr-midnight-blue)' }}>
-              Compliance Journey — DORA Article 12
+              Compliance Process — DORA Article 12
             </h1>
             <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
               IT App X · {demoState.stateLabel}
@@ -490,7 +493,6 @@ export default function HomePage() {
                 Stop
               </button>
             ) : guidedRun?.state === 'awaiting_approval' ? (
-              // Don't show a Run button when waiting for approval — the gate card below is the CTA
               null
             ) : (
               <button
@@ -502,12 +504,12 @@ export default function HomePage() {
                 {startPending
                   ? 'Starting…'
                   : guidedRun?.state === 'completed'
-                  ? '✓ Complete'
+                  ? '✓ Process Complete'
                   : guidedRun?.state === 'failed'
-                  ? 'Retry'
+                  ? 'Retry Process'
                   : guidedRun?.state === 'paused'
-                  ? 'Resume'
-                  : 'Run Guided Demo'}
+                  ? 'Resume Process'
+                  : 'Run Process'}
               </button>
             )}
           </div>
@@ -532,52 +534,44 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Guided approval gate */}
+        {/* Approval gate — this is the ONLY action needed from the user */}
         {isAtGate && approvalMeta && (
-          <div
-            id="approval-gate"
-            className="mt-4 rounded-lg overflow-hidden"
-            style={{ border: '2px solid var(--mr-vibrant-blue)', borderRadius: 'var(--radius-md)' }}
-          >
-            {/* Header bar */}
-            <div className="px-5 py-2 flex items-center gap-2" style={{ background: 'var(--mr-vibrant-blue)' }}>
-              <span className="text-white text-xs font-bold uppercase tracking-widest">
-                ⏸ Workflow paused — human approval required
+          <div id="approval-gate" className="mt-4 rounded-xl overflow-hidden" style={{ border: '3px solid var(--mr-vibrant-blue)' }}>
+            <div className="px-5 py-2.5 flex items-center gap-3" style={{ background: 'var(--mr-vibrant-blue)' }}>
+              <span style={{ fontSize: '1.1rem' }}>⏸</span>
+              <span className="text-white text-sm font-bold uppercase tracking-wider">
+                Your approval is required — process is paused
               </span>
             </div>
-            {/* Body */}
-            <div className="p-5 flex items-start justify-between gap-6" style={{ background: 'var(--mr-light-blue)' }}>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-base mb-1" style={{ color: 'var(--mr-midnight-blue)' }}>
-                  {approvalMeta.title}
-                </p>
-                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                  {approvalMeta.description}
-                </p>
-                <p className="text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>
-                  After approval the workflow will continue automatically through the remaining steps.
-                </p>
+            <div className="p-5" style={{ background: '#EBF0FF' }}>
+              <div className="flex items-start gap-5">
+                <div className="flex-1">
+                  <p className="text-base font-bold mb-1" style={{ color: 'var(--mr-midnight-blue)' }}>
+                    {approvalMeta.title}
+                  </p>
+                  <p className="text-sm mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+                    {approvalMeta.description}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    Click the button to open the review form. Once approved, the process continues automatically.
+                  </p>
+                </div>
+                <button
+                  onClick={() => openApproval(approvalMeta.title, approvalMeta.description, approveApiPath ?? '', true)}
+                  className="flex-shrink-0 px-7 py-3 text-sm font-bold rounded-lg"
+                  style={{
+                    background: 'var(--mr-vibrant-blue)',
+                    color: 'white',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    boxShadow: '0 4px 12px rgba(51,80,184,0.4)',
+                    animation: 'pulse 2s cubic-bezier(0.4,0,0.6,1) infinite',
+                  }}
+                >
+                  ✓ Open Review &amp; Approve
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  setManualApprovalConfig({
-                    title: approvalMeta.title,
-                    desc: approvalMeta.description,
-                    api: approveApiPath ?? '',
-                  })
-                  setManualApprovalOpen(true)
-                }}
-                className="flex-shrink-0 px-6 py-3 text-sm font-bold rounded-md"
-                style={{
-                  background: 'var(--mr-vibrant-blue)',
-                  color: 'white',
-                  border: 'none',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 8px rgba(51,80,184,0.35)',
-                }}
-              >
-                Review &amp; Approve →
-              </button>
             </div>
           </div>
         )}
@@ -770,53 +764,72 @@ export default function HomePage() {
             borderRadius: '0 0 var(--radius-md) var(--radius-md)',
           }}
         >
-          {/* Step 1: Read Sources */}
-          {step.number === 1 && canPropose && (
-            <button
-              onClick={runIngest}
-              disabled={ingestLoading || ingestDone}
-              className="px-4 py-2 text-sm font-medium rounded disabled:opacity-50 transition-colors"
-              style={{
-                background: ingestDone ? 'rgba(26,124,89,0.08)' : 'var(--mr-white)',
-                color: ingestDone ? 'var(--color-success)' : 'var(--color-text-secondary)',
-                border: `1px solid ${ingestDone ? 'rgba(26,124,89,0.3)' : 'var(--color-border)'}`,
-                cursor: ingestLoading || ingestDone ? 'default' : 'pointer',
-              }}
-            >
-              {ingestLoading ? 'Reading…' : ingestDone ? '✓ Sources Read' : 'Read Sources'}
-            </button>
-          )}
-
-          {step.proposeApi && canPropose && (
-            <button
-              onClick={() => runManualAction(step.proposeApi!, step.proposeLabel ?? 'Propose')}
-              disabled={manualLoading || (step.number === 1 && !ingestDone)}
-              className="px-4 py-2 text-sm font-medium rounded text-white disabled:opacity-50 transition-colors"
-              style={{ background: 'var(--mr-vibrant-blue)', border: 'none', cursor: 'pointer' }}
-            >
-              {manualLoading ? 'Generating…' : step.proposeLabel ?? 'Propose Changes'}
-            </button>
-          )}
-
-          {step.approveApi && canApprove && (
-            <button
-              onClick={() => openManualApproval(step.approveTitle!, step.approveDesc!, step.approveApi!)}
-              className="px-4 py-2 text-sm font-medium rounded text-white transition-colors"
-              style={{ background: 'var(--color-success)', border: 'none', cursor: 'pointer' }}
-            >
-              Review &amp; Approve
-            </button>
-          )}
-
-          {step.actionApi && canAction && (
-            <button
-              onClick={() => runManualAction(step.actionApi!, step.actionLabel ?? 'Action')}
-              disabled={manualLoading}
-              className="px-4 py-2 text-sm font-medium rounded text-white disabled:opacity-50 transition-colors"
-              style={{ background: 'var(--mr-vibrant-blue)', border: 'none', cursor: 'pointer' }}
-            >
-              {manualLoading ? 'Running…' : step.actionLabel ?? 'Execute'}
-            </button>
+          {/* When process is active, hide all manual buttons and show status instead */}
+          {processActive ? (
+            isExecuting && activeGuidedStep === step.number ? (
+              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--mr-vibrant-blue)' }}>
+                <span className="inline-block w-3 h-3 rounded-full animate-pulse" style={{ background: 'var(--mr-vibrant-blue)' }} />
+                Running automatically…
+              </div>
+            ) : isAtGate && approvalMeta ? (
+              <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--mr-vibrant-blue)' }}>
+                <span>⏸</span>
+                Scroll up to review and approve
+              </div>
+            ) : isStepCompleted ? null : (
+              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                <span className="inline-block w-3 h-3 rounded-full animate-pulse" style={{ background: 'var(--color-text-muted)' }} />
+                Waiting for earlier steps…
+              </div>
+            )
+          ) : (
+            <>
+              {/* Manual mode buttons — only shown when process is not running */}
+              {step.number === 1 && canPropose && (
+                <button
+                  onClick={runIngest}
+                  disabled={ingestLoading || ingestDone}
+                  className="px-4 py-2 text-sm font-medium rounded disabled:opacity-50 transition-colors"
+                  style={{
+                    background: ingestDone ? 'rgba(26,124,89,0.08)' : 'var(--mr-white)',
+                    color: ingestDone ? 'var(--color-success)' : 'var(--color-text-secondary)',
+                    border: `1px solid ${ingestDone ? 'rgba(26,124,89,0.3)' : 'var(--color-border)'}`,
+                    cursor: ingestLoading || ingestDone ? 'default' : 'pointer',
+                  }}
+                >
+                  {ingestLoading ? 'Reading…' : ingestDone ? '✓ Sources Read' : 'Read Sources'}
+                </button>
+              )}
+              {step.proposeApi && canPropose && (
+                <button
+                  onClick={() => runManualAction(step.proposeApi!, step.proposeLabel ?? 'Propose')}
+                  disabled={manualLoading || (step.number === 1 && !ingestDone)}
+                  className="px-4 py-2 text-sm font-medium rounded text-white disabled:opacity-50 transition-colors"
+                  style={{ background: 'var(--mr-vibrant-blue)', border: 'none', cursor: 'pointer' }}
+                >
+                  {manualLoading ? 'Generating…' : step.proposeLabel ?? 'Propose Changes'}
+                </button>
+              )}
+              {step.approveApi && canApprove && (
+                <button
+                  onClick={() => openApproval(step.approveTitle!, step.approveDesc!, step.approveApi!, false)}
+                  className="px-4 py-2 text-sm font-medium rounded text-white transition-colors"
+                  style={{ background: 'var(--color-success)', border: 'none', cursor: 'pointer' }}
+                >
+                  Review &amp; Approve
+                </button>
+              )}
+              {step.actionApi && canAction && (
+                <button
+                  onClick={() => runManualAction(step.actionApi!, step.actionLabel ?? 'Action')}
+                  disabled={manualLoading}
+                  className="px-4 py-2 text-sm font-medium rounded text-white disabled:opacity-50 transition-colors"
+                  style={{ background: 'var(--mr-vibrant-blue)', border: 'none', cursor: 'pointer' }}
+                >
+                  {manualLoading ? 'Running…' : step.actionLabel ?? 'Execute'}
+                </button>
+              )}
+            </>
           )}
 
           {step.isAudit && (
@@ -867,35 +880,23 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Manual approval modal (for step-level approve buttons) */}
+      {/* Single approval modal — handles both manual and guided flows */}
       <ApprovalModal
-        isOpen={manualApprovalOpen}
-        title={manualApprovalConfig.title}
-        description={manualApprovalConfig.desc}
-        onApprove={(comment, reviewer) => handleManualApproval('approved', comment, reviewer)}
-        onReject={(comment, reviewer) => handleManualApproval('rejected', comment, reviewer)}
-        onClose={() => setManualApprovalOpen(false)}
+        isOpen={approvalOpen}
+        guidedMode={approvalConfig.guided}
+        approveApiPath={approvalConfig.guided ? approvalConfig.api : undefined}
+        title={approvalConfig.title}
+        description={approvalConfig.desc}
+        onApprove={approvalConfig.guided
+          ? handleApprovalDone
+          : (comment, reviewer) => handleApprovalAction('approved', comment, reviewer)
+        }
+        onReject={approvalConfig.guided
+          ? async () => { await fetchDemoState(); await fetchGuidedRun() }
+          : (comment, reviewer) => handleApprovalAction('rejected', comment, reviewer)
+        }
+        onClose={() => setApprovalOpen(false)}
       />
-
-      {/* Guided mode approval modal */}
-      {isAtGate && approvalMeta && approveApiPath && (
-        <ApprovalModal
-          isOpen
-          guidedMode
-          approveApiPath={approveApiPath}
-          title={approvalMeta.title}
-          description={approvalMeta.description}
-          onApprove={handleApprovalDone}
-          onReject={async () => {
-            await fetchDemoState()
-            await fetchGuidedRun()
-          }}
-          onClose={async () => {
-            await fetch('/api/guided-run/stop', { method: 'POST' })
-            await fetchGuidedRun()
-          }}
-        />
-      )}
     </div>
   )
 }
