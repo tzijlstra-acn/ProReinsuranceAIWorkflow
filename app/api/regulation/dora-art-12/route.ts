@@ -2,35 +2,11 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db/index'
 import { regulationSources, requirements } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
+import { extractDoraArticle12FromHtml } from '@/lib/html-service'
 
 const EURLEX_HTML_URL = 'https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32022R2554'
 const EURLEX_ELI_URL = 'https://eur-lex.europa.eu/eli/reg/2022/2554/oj/eng'
 const CELEX = '32022R2554'
-
-function extractArticle12FromHtml(html: string): string {
-  // Locate "Article 12" heading — tolerate minor whitespace differences
-  const art12Match = html.search(/Article\s+12\b/)
-  if (art12Match === -1) return ''
-
-  // End at "Article 13" if present
-  const art13Match = html.search(/Article\s+13\b/)
-  const snippet =
-    art13Match > art12Match
-      ? html.slice(art12Match, art13Match)
-      : html.slice(art12Match, art12Match + 6000)
-
-  return snippet
-    .replace(/<[^>]+>/g, ' ')      // strip tags
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#\d+;/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-    .slice(0, 4000)
-}
 
 export async function GET() {
   try {
@@ -71,8 +47,8 @@ export async function GET() {
 
         if (res.ok) {
           const html = await res.text()
-          const extracted = extractArticle12FromHtml(html)
-          if (extracted.length > 50) {
+          const { text: extracted } = extractDoraArticle12FromHtml(html)
+          if (extracted.length > 100) {
             article12Text = extracted
             liveSource = 'live'
             fetchedAt = new Date().toISOString()
