@@ -90,6 +90,8 @@ export interface AuditContext {
   deploymentDate: string
   sddVersion: string
   omVersion: string
+  /** Optional extra context injected by the route (transform log summary, citations, etc.) */
+  additionalContext?: string
 }
 
 // ─── Model assignment constants ───────────────────────────────────────────────

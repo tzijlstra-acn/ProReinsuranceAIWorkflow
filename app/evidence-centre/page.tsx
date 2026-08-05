@@ -747,10 +747,16 @@ export default function EvidenceCentrePage() {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [evidenceRoot, setEvidenceRoot] = useState<EvidenceRoot | null>(null)
   const [selectedGroup, setSelectedGroup] = useState('All')
+  const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [viewingFile, setViewingFile] = useState<FileEntry | null>(null)
   const [comparingPair, setComparingPair] = useState<{ v1: FileEntry; v2: FileEntry } | null>(null)
   const [rootFallback, setRootFallback] = useState<string | null>(null)
+  const [qaOpen, setQaOpen] = useState(false)
+  const [qaQuestion, setQaQuestion] = useState('')
+  const [qaAnswer, setQaAnswer] = useState<string | null>(null)
+  const [qaCitations, setQaCitations] = useState<Array<{ label: string; path: string; format: string }>>([])
+  const [qaLoading, setQaLoading] = useState(false)
 
   const fetchFiles = useCallback(async () => {
     try {
@@ -779,10 +785,65 @@ export default function EvidenceCentrePage() {
 
   const existingFiles = files.filter(f => f.exists)
 
+  const searchedFiles = searchQuery.trim()
+    ? existingFiles.filter(f => {
+        const filename = getFilename(f.relativePath)
+        const info = getFriendlyInfo(filename)
+        const q = searchQuery.toLowerCase()
+        return (
+          info.name.toLowerCase().includes(q) ||
+          filename.toLowerCase().includes(q) ||
+          info.sourceSystem.toLowerCase().includes(q)
+        )
+      })
+    : existingFiles
+
   const filteredFiles =
     selectedGroup === 'All'
-      ? existingFiles
-      : existingFiles.filter(f => getGroup(f.relativePath) === selectedGroup)
+      ? searchedFiles
+      : searchedFiles.filter(f => getGroup(f.relativePath) === selectedGroup)
+
+  const keyEvidenceFiles = existingFiles.filter(f =>
+    ['docx', 'csv', 'html'].includes(f.format) && f.status !== 'baseline'
+  )
+
+  const askEvidence = async () => {
+    if (!qaQuestion.trim()) return
+    setQaLoading(true)
+    setQaAnswer(null)
+    setQaCitations([])
+    try {
+      const res = await fetch('/api/audit/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: qaQuestion }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        setQaAnswer(data.error)
+      } else {
+        const auditAnswer = data.answer
+        let displayText = ''
+        if (typeof auditAnswer === 'string') {
+          displayText = auditAnswer
+        } else if (auditAnswer?.directResponse) {
+          const parts: string[] = [auditAnswer.directResponse]
+          if (Array.isArray(auditAnswer.sections)) {
+            for (const s of auditAnswer.sections as Array<{ heading: string; content: string }>) {
+              parts.push(`\n${s.heading}\n${s.content}`)
+            }
+          }
+          displayText = parts.join('\n')
+        } else {
+          displayText = 'No answer returned'
+        }
+        setQaAnswer(displayText)
+        setQaCitations(data.citations ?? [])
+      }
+    } finally {
+      setQaLoading(false)
+    }
+  }
 
   // Build grouped structure for the main content area
   const groupedFiles: Record<string, FileEntry[]> = {}
@@ -830,6 +891,14 @@ export default function EvidenceCentrePage() {
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search files…"
+            className="px-3 py-2 text-sm rounded-md border border-[#D0D7E3] text-[#0f1e32] outline-none focus:border-[#3350b8]"
+            style={{ width: '180px', background: 'white' }}
+          />
           <button
             onClick={fetchFiles}
             className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm border border-[#D0D7E3] text-[#4A5568] hover:text-[#003781] hover:border-[#003781] transition-colors"
@@ -884,7 +953,31 @@ export default function EvidenceCentrePage() {
         </aside>
 
         {/* Main content */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 space-y-8">
+
+          {/* Key Evidence hero section — shown only in "All" view when files exist */}
+          {selectedGroup === 'All' && !searchQuery && keyEvidenceFiles.length > 0 && (
+            <section>
+              <div className="flex items-center gap-3 mb-3">
+                <h2 className="text-sm font-semibold text-[#0f1e32]">Generated Artefacts</h2>
+                <span className="text-xs text-[#A0ADB9]">{keyEvidenceFiles.length} key {keyEvidenceFiles.length === 1 ? 'document' : 'documents'}</span>
+                <div className="flex-1 h-px bg-[#3350b8]/20" />
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                {keyEvidenceFiles.map(f => (
+                  <FileCard
+                    key={f.relativePath}
+                    file={f}
+                    allFiles={existingFiles}
+                    onView={setViewingFile}
+                    onCompare={(v1, v2) => setComparingPair({ v1, v2 })}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Group-based file listing */}
           {loading ? (
             <div className="flex items-center justify-center h-48 text-[#4A5568]">
               <Loader2 className="w-5 h-5 animate-spin mr-2" />
@@ -893,8 +986,8 @@ export default function EvidenceCentrePage() {
           ) : filteredFiles.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-[#4A5568]">
               <Archive className="w-10 h-10 mb-3 text-[#D0D7E3]" />
-              <p className="font-medium">No files in this group yet</p>
-              <p className="text-sm mt-1">Run pipeline stages to generate artefacts</p>
+              <p className="font-medium">No files found</p>
+              <p className="text-sm mt-1">{searchQuery ? 'Try a different search term' : 'Run pipeline stages to generate artefacts'}</p>
             </div>
           ) : (
             <div className="space-y-8">
@@ -906,6 +999,9 @@ export default function EvidenceCentrePage() {
                     <div className="flex items-center gap-3 mb-3">
                       <h2 className="text-sm font-semibold text-[#0f1e32]">{group}</h2>
                       <span className="text-xs text-[#A0ADB9]">{groupFiles.length} {groupFiles.length === 1 ? 'file' : 'files'}</span>
+                      {group === 'Parsed Data' && (
+                        <span className="text-xs text-[#A0ADB9] italic">Intermediate parsed data — generated during workflow.</span>
+                      )}
                       <div className="flex-1 h-px bg-[#D0D7E3]" />
                     </div>
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
@@ -924,6 +1020,64 @@ export default function EvidenceCentrePage() {
               })}
             </div>
           )}
+
+          {/* AI Q&A panel */}
+          <section className="border border-[#D0D7E3] rounded-lg overflow-hidden">
+            <button
+              onClick={() => setQaOpen(o => !o)}
+              className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-left transition-colors hover:bg-[#F4F6F9]"
+              style={{ color: '#0f1e32', background: '#F4F6F9' }}
+            >
+              <span>Ask about the evidence</span>
+              <span className="text-[#A0ADB9] text-xs">{qaOpen ? '▲ Hide' : '▼ Expand'}</span>
+            </button>
+            {qaOpen && (
+              <div className="p-5 space-y-4 bg-white">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={qaQuestion}
+                    onChange={e => setQaQuestion(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && !qaLoading && askEvidence()}
+                    placeholder="Ask about compliance, controls, evidence…"
+                    className="flex-1 px-3 py-2 text-sm rounded border border-[#D0D7E3] outline-none focus:border-[#3350b8]"
+                    style={{ background: 'white' }}
+                  />
+                  <button
+                    onClick={askEvidence}
+                    disabled={qaLoading || !qaQuestion.trim()}
+                    className="px-4 py-2 text-sm font-semibold rounded text-white disabled:opacity-50 transition-colors"
+                    style={{ background: '#3350b8', border: 'none', cursor: qaLoading ? 'wait' : 'pointer' }}
+                  >
+                    {qaLoading ? 'Analysing…' : 'Ask'}
+                  </button>
+                </div>
+                {qaAnswer && (
+                  <div className="p-4 rounded space-y-3 bg-[#F4F6F9] border border-[#D0D7E3]">
+                    <p className="text-sm text-[#0f1e32]" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                      {qaAnswer}
+                    </p>
+                    {qaCitations.length > 0 && (
+                      <div className="pt-2 border-t border-[#D0D7E3]">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-[#A0ADB9] mb-2">Evidence documents</p>
+                        <div className="flex flex-wrap gap-2">
+                          {qaCitations.map(c => (
+                            <span
+                              key={c.path}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-white border border-[#D0D7E3] text-[#0f1e32]"
+                            >
+                              <span className="text-[#A0ADB9]">{c.format.toUpperCase()}</span>
+                              {c.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
         </div>
       </div>
 

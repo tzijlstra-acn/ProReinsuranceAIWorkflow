@@ -250,7 +250,7 @@ export default function HomePage() {
     const res = await fetch('/api/demo/state')
     const data: DemoState = await res.json()
     setDemoState(data)
-    setSelectedStep(prev => (prev === 1 ? data.stageNumber : prev))
+    setSelectedStep(prev => (prev === 1 ? Math.max(1, data.stageNumber) : prev))
   }, [])
 
   const fetchGuidedRun = useCallback(async () => {
@@ -279,6 +279,16 @@ export default function HomePage() {
     }, 800)
     return () => clearInterval(poll)
   }, [guidedRun?.state, fetchGuidedRun, fetchDemoState])
+
+  // Scroll to approval gate when it becomes visible
+  useEffect(() => {
+    const atGate = guidedRun?.state === 'awaiting_approval' && guidedRun?.approvalType != null
+    if (atGate) {
+      setTimeout(() => {
+        document.getElementById('approval-gate')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 300)
+    }
+  }, [guidedRun?.state, guidedRun?.approvalType])
 
   // Elapsed timer
   useEffect(() => {
@@ -505,14 +515,46 @@ export default function HomePage() {
         {/* Guided approval gate notice */}
         {isAtGate && approvalMeta && (
           <div
-            className="mt-4 p-3 rounded text-sm flex items-center gap-2"
-            style={{ background: 'rgba(51,80,184,0.08)', border: '1px solid rgba(51,80,184,0.2)', color: 'var(--mr-midnight-blue)' }}
+            id="approval-gate"
+            className="mt-4 p-5 rounded-lg"
+            style={{
+              background: 'var(--mr-light-blue)',
+              border: '2px solid var(--mr-vibrant-blue)',
+              borderRadius: 'var(--radius-md)',
+            }}
           >
-            <span style={{ color: 'var(--mr-vibrant-blue)' }}>⏱</span>
-            <span>
-              <span className="font-medium">Approval required: </span>
-              {approvalMeta.title} — see modal below
-            </span>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--mr-vibrant-blue)' }}>
+                  Human approval required
+                </p>
+                <p className="font-semibold text-base" style={{ color: 'var(--mr-midnight-blue)' }}>
+                  {approvalMeta.title}
+                </p>
+                <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                  {approvalMeta.description}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setManualApprovalConfig({
+                    title: approvalMeta.title,
+                    desc: approvalMeta.description,
+                    api: approveApiPath ?? '',
+                  })
+                  setManualApprovalOpen(true)
+                }}
+                className="flex-shrink-0 px-5 py-2.5 text-sm font-bold rounded-md animate-pulse"
+                style={{
+                  background: 'var(--mr-vibrant-blue)',
+                  color: 'white',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Review &amp; Approve →
+              </button>
+            </div>
           </div>
         )}
 

@@ -183,6 +183,10 @@ async function callStageApi(
   return res.json() as Promise<{ ok: boolean; newState?: string; error?: string }>
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms))
+
 // ─── Core execution logic ────────────────────────────────────────────────────
 
 interface ExecuteResult {
@@ -218,6 +222,7 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     completedInThisRun.push(1)
     completedSteps.push(1)
     patchGuidedRun({ completedSteps })
+    await sleep(1500)
     demoState = await refreshState()
   }
 
@@ -239,6 +244,7 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     completedInThisRun.push(2)
     completedSteps.push(2)
     patchGuidedRun({ completedSteps })
+    await sleep(1500)
     demoState = await refreshState()
   }
 
@@ -260,6 +266,7 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     completedInThisRun.push(3)
     completedSteps.push(3)
     patchGuidedRun({ completedSteps })
+    await sleep(1500)
     demoState = await refreshState()
   }
 
@@ -274,6 +281,7 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     completedInThisRun.push(4)
     completedSteps.push(4)
     patchGuidedRun({ completedSteps })
+    await sleep(1500)
     demoState = await refreshState()
   }
 
@@ -288,6 +296,7 @@ export async function executeFromCurrentState(baseUrl: string): Promise<ExecuteR
     completedInThisRun.push(5)
     completedSteps.push(5)
     patchGuidedRun({ completedSteps })
+    await sleep(1500)
     demoState = await refreshState()
   }
 

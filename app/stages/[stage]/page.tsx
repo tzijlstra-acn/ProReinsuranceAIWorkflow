@@ -940,9 +940,114 @@ function Stage5Content({ data, onAction, onApproval, loading }: { data: DemoData
 // ── Stage 6 ──
 
 function Stage6Content() {
+  const [question, setQuestion] = useState(
+    'How does IT App X fulfil the DORA Article 12 backup requirements?'
+  )
+  const [answer, setAnswer] = useState<string | null>(null)
+  const [citations, setCitations] = useState<Array<{ label: string; path: string; format: string }>>([])
+  const [loading, setLoading] = useState(false)
+
+  const ask = async () => {
+    setLoading(true)
+    setAnswer(null)
+    setCitations([])
+    try {
+      const res = await fetch('/api/audit/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        setAnswer(data.error)
+      } else {
+        const auditAnswer = data.answer
+        let displayText = ''
+        if (typeof auditAnswer === 'string') {
+          displayText = auditAnswer
+        } else if (auditAnswer?.directResponse) {
+          const parts: string[] = [auditAnswer.directResponse]
+          if (Array.isArray(auditAnswer.sections)) {
+            for (const s of auditAnswer.sections as Array<{ heading: string; content: string }>) {
+              parts.push(`\n${s.heading}\n${s.content}`)
+            }
+          }
+          displayText = parts.join('\n')
+        } else {
+          displayText = 'No answer returned'
+        }
+        setAnswer(displayText)
+        setCitations(data.citations ?? [])
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <div className="space-y-4">
-      <p className="text-[#4A5568] text-sm">Stage 6 provides the RQMT audit answer with full traceability.</p>
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <label className="text-sm font-medium" style={{ color: 'var(--mr-midnight-blue)' }}>
+          Ask an audit question
+        </label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={question}
+            onChange={e => setQuestion(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !loading && ask()}
+            className="flex-1 px-3 py-2 text-sm rounded"
+            style={{ border: '1px solid var(--color-border)', outline: 'none', background: 'white' }}
+            placeholder="Ask about compliance, controls, evidence…"
+          />
+          <button
+            onClick={ask}
+            disabled={loading || !question.trim()}
+            className="px-4 py-2 text-sm font-semibold rounded disabled:opacity-50"
+            style={{ background: 'var(--mr-vibrant-blue)', color: 'white', border: 'none', cursor: loading ? 'wait' : 'pointer' }}
+          >
+            {loading ? 'Analysing…' : 'Ask'}
+          </button>
+        </div>
+      </div>
+
+      {answer && (
+        <div
+          className="p-4 rounded space-y-3"
+          style={{ background: 'var(--mr-light-grey)', border: '1px solid var(--color-border)' }}
+        >
+          <p className="text-sm" style={{ color: 'var(--mr-midnight-blue)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+            {answer}
+          </p>
+          {citations.length > 0 && (
+            <div className="pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-muted)' }}>
+                Evidence documents
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {citations.map(c => (
+                  <a
+                    key={c.path}
+                    href={`/api/os/open?path=${encodeURIComponent(c.path)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium"
+                    style={{
+                      background: 'var(--mr-light-blue)',
+                      color: 'var(--mr-midnight-blue)',
+                      border: '1px solid var(--color-border)',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    <span style={{ opacity: 0.6 }}>{c.format.toUpperCase()}</span>
+                    {c.label}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <StageTabView
         stageNumber={6}
@@ -956,9 +1061,15 @@ function Stage6Content() {
         evidenceFilter="stage-6"
       />
 
-      <a href="/audit" className="inline-block px-4 py-2 bg-[#003781] hover:bg-[#0066B2] text-white text-sm rounded-md font-medium">
-        Go to Audit Evidence →
-      </a>
+      <div className="pt-2">
+        <a
+          href="/evidence-centre"
+          className="inline-flex items-center gap-1 text-sm font-medium"
+          style={{ color: 'var(--mr-vibrant-blue)', textDecoration: 'none' }}
+        >
+          View all evidence in Evidence Centre →
+        </a>
+      </div>
     </div>
   )
 }
