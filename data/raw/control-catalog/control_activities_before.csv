@@ -1,0 +1,4 @@
+control_id,title,objective,scope,frequency,owner_role,status,evidence_requirements,source_regulation,geographic_replication_required
+BR0039,Backup Job Configuration,Ensure automated backup jobs are configured for all in-scope systems,All High and Critical IT systems,Continuous,Platform Engineering Lead,Active,Azure backup job log; retention policy screenshot,DORA Article 12,No
+BR0040,Recovery Test,Annual backup restoration test,All High and Critical IT systems,Annual,Platform Engineering Lead,Active,Test report with RTO/RPO results,DORA Article 12,No
+BR0041,Backup Storage Classification,Ensure backup storage meets data classification requirements,All classified data,Continuous,Data Governance Lead,Active,Storage configuration export,DORA Article 12,No

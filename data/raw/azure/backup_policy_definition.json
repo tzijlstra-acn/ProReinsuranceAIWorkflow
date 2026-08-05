@@ -1,0 +1,16 @@
+{
+  "policyDefinitionId": "POL-BACKUP-001",
+  "displayName": "Virtual machines should have backup enabled",
+  "description": "Ensure Azure virtual machines are protected with Azure Backup. The backup must be associated with an active Recovery Services Vault and a backup policy.",
+  "policyRule": {
+    "if": {
+      "allOf": [
+        { "field": "type", "equals": "Microsoft.Compute/virtualMachines" },
+        { "field": "Microsoft.Compute/virtualMachines/backupEnabled", "notEquals": true }
+      ]
+    },
+    "then": { "effect": "AuditIfNotExists" }
+  },
+  "evaluationLogic": "COMPLIANT when: resource.type === 'VirtualMachine' AND linkedResources.some(r => r.type === 'RecoveryServicesVault') AND linkedResources.some(r => r.type === 'BackupProtectedItem')",
+  "metadata": { "version": "1.0.0", "category": "Backup" }
+}

@@ -1,0 +1,5 @@
+application_id,application_name,work_product,status,last_updated,evidence_source,fulfillment_notes,owner
+APP-X-001,IT App X,Backup Job Configuration,Not Fulfilled,2024-09-30,Manual assessment,No geo-replication configured. Local backup only.,Platform Engineering Lead
+APP-X-001,IT App X,Business Continuity Plan,Fulfilled,2024-09-30,BCP document v2.1,BCP approved and tested.,Risk Management
+APP-X-001,IT App X,Disaster Recovery Plan,Fulfilled,2024-09-30,DRP document v1.8,DRP tested Q3 2024.,Platform Engineering Lead
+APP-X-001,IT App X,Information Security Assessment,Fulfilled,2024-09-30,ISA report 2024-Q3,No critical findings.,Information Security

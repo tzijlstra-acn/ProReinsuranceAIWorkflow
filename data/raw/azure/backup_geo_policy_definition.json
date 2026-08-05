@@ -1,0 +1,16 @@
+{
+  "policyDefinitionId": "POL-BACKUP-002",
+  "displayName": "Backup storage must be geo-redundant (GRZ)",
+  "description": "Ensure the Recovery Services Vault protecting in-scope VMs is configured with GeoRedundant storage to satisfy DORA Article 12(4).",
+  "policyRule": {
+    "if": {
+      "allOf": [
+        { "field": "type", "equals": "Microsoft.RecoveryServices/vaults" },
+        { "field": "properties.sku.name", "notEquals": "GeoRedundant" }
+      ]
+    },
+    "then": { "effect": "AuditIfNotExists" }
+  },
+  "evaluationLogic": "COMPLIANT when: resource.type === 'RecoveryServicesVault' AND resource.properties.storageRedundancy === 'GeoRedundant'",
+  "metadata": { "version": "1.0.0", "category": "Backup" }
+}

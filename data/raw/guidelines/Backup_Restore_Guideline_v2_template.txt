@@ -1,0 +1,36 @@
+Backup & Restore Guideline
+Version 2.0 | Classification: Internal | Owner: Technology Risk | Supersedes: v1.0
+
+CHANGE SUMMARY: Added Section 3.3 Geographic Redundancy (GRZ) requirement per DORA Article 12.
+
+1. Purpose and Scope
+This guideline defines the minimum requirements for backup configuration and data restoration for all IT systems classified as High or Critical.
+
+2. Definitions
+Recovery Time Objective (RTO): Maximum acceptable downtime.
+Recovery Point Objective (RPO): Maximum acceptable data loss period.
+Geographic Redundancy (GRZ): Storage replication across geographically separated Azure regions.
+
+3. Backup Requirements
+3.1 Automated Backup Jobs
+All systems classified High or Critical must have automated daily backup jobs configured.
+Backup retention period: minimum 30 days for operational data.
+
+3.2 Backup Storage
+Backup data shall be stored in Azure Recovery Services Vault.
+Storage configuration: Geo-Redundant Storage (GRS/GRZ).
+Geographic replication is REQUIRED for all in-scope systems.
+
+3.3 Geographic Redundancy (GRZ) — NEW
+Backup data for in-scope systems must be stored using geographic redundancy (GRZ) or an approved equivalent.
+This requirement implements DORA Article 12(4) which mandates that backup systems be geographically separate from primary systems.
+Restoration capability and evidence of successful restore tests must be documented quarterly.
+Exceptions require documented risk acceptance approved by the CISO.
+
+4. Testing Requirements
+Backup and restoration procedures shall be tested quarterly (changed from annually).
+Testing evidence must include: restore time measurement, data integrity check, geographic failover test.
+
+5. Exception Handling
+Exceptions to this guideline require approval from the CISO.
+Risk acceptance must be documented and reviewed quarterly.

@@ -1,0 +1,37 @@
+{
+  "subscriptionId": "sub-simulated-001",
+  "resourceGroupName": "rg-app-x-prod",
+  "applicationId": "APP-X-001",
+  "capturedAt": "2025-01-15T09:00:00Z",
+  "state": "before_remediation",
+  "resources": [
+    {
+      "id": "/subscriptions/sub-simulated-001/resourceGroups/rg-app-x-prod/providers/Microsoft.Compute/virtualMachines/vm-app-x-001",
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "vm-app-x-001",
+      "location": "westeurope",
+      "properties": {
+        "vmSize": "Standard_D4s_v3",
+        "osType": "Windows",
+        "encryptionEnabled": true,
+        "diagnosticLoggingEnabled": true,
+        "backupEnabled": false
+      },
+      "tags": { "app_id": "APP-X-001", "env": "production", "criticality": "high" }
+    },
+    {
+      "id": "/subscriptions/sub-simulated-001/resourceGroups/rg-app-x-prod/providers/Microsoft.Storage/storageAccounts/stappx001",
+      "type": "Microsoft.Storage/storageAccounts",
+      "name": "stappx001",
+      "location": "westeurope",
+      "properties": {
+        "sku": "Standard_LRS",
+        "accessTier": "Hot",
+        "httpsTrafficOnly": true
+      },
+      "tags": { "app_id": "APP-X-001", "env": "production" }
+    }
+  ],
+  "backupProtectedItems": [],
+  "recoveryServicesVaults": []
+}

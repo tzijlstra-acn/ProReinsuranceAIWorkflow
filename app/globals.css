@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+:root {
+  --mr-logo-blue: #175788;      /* Only for logo/entity identification */
+  --mr-midnight-blue: #0f1e32;  /* Primary typography, nav, selected backgrounds */
+  --mr-vibrant-blue: #3350b8;   /* Actions, active states, highlights */
+  --mr-light-blue: #d7ddf2;     /* Light accents, hover backgrounds */
+  --mr-light-grey: #f4f4f4;     /* Application surface backgrounds */
+  --mr-white: #ffffff;           /* Cards, panels */
+
+  /* Semantic aliases */
+  --color-bg: var(--mr-light-grey);
+  --color-surface: var(--mr-white);
+  --color-primary: var(--mr-midnight-blue);
+  --color-action: var(--mr-vibrant-blue);
+  --color-action-hover: #2840a0;
+  --color-accent-light: var(--mr-light-blue);
+  --color-border: #dde1ea;
+  --color-text-primary: var(--mr-midnight-blue);
+  --color-text-secondary: #4a5568;
+  --color-text-muted: #8a96a8;
+
+  /* Status colors (conservative) */
+  --color-success: #1a7c59;
+  --color-warning: #b45309;
+  --color-danger: #c0392b;
+  --color-info: var(--mr-vibrant-blue);
+
+  /* Typography */
+  --font-sans: Arial, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+  /* Spacing */
+  --radius: 4px;
+  --radius-md: 6px;
+  --shadow-sm: 0 1px 3px rgba(15, 30, 50, 0.08);
+  --shadow-md: 0 2px 8px rgba(15, 30, 50, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+html {
+  background-color: var(--mr-light-grey);
+  color: var(--mr-midnight-blue);
+}
+
+/* Logo placeholder */
+.mr-logo-placeholder {
+  width: 32px;
+  height: 32px;
+  background: var(--mr-logo-blue);
+  color: white;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+/* Prose styles for markdown-like content */
+.prose-content h3 {
+  font-weight: 600;
+  font-size: 1.125rem;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--mr-midnight-blue);
+}
+.prose-content h4 {
+  font-weight: 500;
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+  color: var(--mr-midnight-blue);
+}
+.prose-content p {
+  margin-bottom: 0.75rem;
+  color: var(--color-text-secondary);
+}
+.prose-content ul {
+  list-style: disc;
+  list-style-position: inside;
+  margin-bottom: 0.75rem;
+  color: var(--color-text-secondary);
+}
+.prose-content strong {
+  font-weight: 600;
+  color: var(--mr-midnight-blue);
+}
+.prose-content em {
+  font-style: italic;
+  color: var(--color-text-secondary);
+}
+.prose-content code {
+  background: var(--mr-light-grey);
+  color: var(--mr-vibrant-blue);
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-family: var(--font-mono);
+}
+.prose-content pre {
+  background: var(--mr-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  overflow-x: auto;
+}
+.prose-content pre code {
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-secondary);
+}
+.prose-content a { color: var(--mr-vibrant-blue); text-decoration: underline; }
+.prose-content a:hover { color: var(--color-action-hover); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--mr-light-grey); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-secondary); }
