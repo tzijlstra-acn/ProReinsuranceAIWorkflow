@@ -342,6 +342,55 @@ class DeterministicDemoProvider implements AiProvider {
   }
 }
 
+// ─── Rate-limit helpers ───────────────────────────────────────────────────────
+
+const sleep = (ms: number) => new Promise<void>(res => setTimeout(res, ms))
+
+// Minimum gap between calls per model tier (ms). o3 is 3 RPM on low tiers → 20s.
+const MIN_CALL_GAP_MS: Record<string, number> = {
+  o3: 20_000,
+  'gpt-4o': 1_000,
+  'gpt-4o-mini': 500,
+}
+
+// Track last call timestamp per model so sequential calls are spaced out.
+const lastCallAt: Record<string, number> = {}
+
+async function throttle(model: string): Promise<void> {
+  const tier = model.startsWith('o3') ? 'o3' : model.startsWith('gpt-4o-mini') ? 'gpt-4o-mini' : 'gpt-4o'
+  const gap = MIN_CALL_GAP_MS[tier] ?? 1_000
+  const since = Date.now() - (lastCallAt[tier] ?? 0)
+  if (since < gap) await sleep(gap - since)
+  lastCallAt[tier] = Date.now()
+}
+
+// Retry up to maxRetries times on 429 / 503, honouring Retry-After header.
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let delay = 2_000
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (err: unknown) {
+      const isLast = attempt === maxRetries
+      const status = (err as { status?: number })?.status
+      const retryable = status === 429 || status === 503
+
+      if (!retryable || isLast) throw err
+
+      // Respect Retry-After header if the SDK exposes it
+      const headers = (err as { headers?: Record<string, string> })?.headers
+      const retryAfterSec = headers?.['retry-after'] ? parseFloat(headers['retry-after']) : null
+      const waitMs = retryAfterSec != null ? retryAfterSec * 1_000 : delay
+
+      console.warn(`[AI] Rate limited (attempt ${attempt + 1}/${maxRetries + 1}), waiting ${waitMs}ms…`)
+      await sleep(waitMs)
+      delay = Math.min(delay * 2, 60_000) // cap at 60s
+    }
+  }
+  // unreachable, but satisfies TS
+  throw new Error('withRetry exhausted')
+}
+
 // ─── OpenAI Provider ──────────────────────────────────────────────────────────
 // Model assignments:
 //   o3          → deriveGuidelineProposal, deriveControlActivity, answerAuditQuestion
@@ -368,7 +417,7 @@ class OpenAiProvider implements AiProvider {
   }
 
   /**
-   * Call the chat completions endpoint.
+   * Call the chat completions endpoint with throttling + retry on 429/503.
    * o3 does not support response_format: json_object or temperature — omit those params.
    * gpt-4o and gpt-4o-mini support json_object mode.
    */
@@ -393,8 +442,10 @@ class OpenAiProvider implements AiProvider {
           ],
         }
 
-    const response = await this.client.chat.completions.create(params)
-    const raw = response.choices[0]?.message?.content ?? '{}'
+    await throttle(model)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await withRetry<any>(() => this.client.chat.completions.create(params))
+    const raw: string = response.choices[0]?.message?.content ?? '{}'
     return safeParse(raw)
   }
 
