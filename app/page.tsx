@@ -235,8 +235,12 @@ export default function HomePage() {
   const [selectedStep, setSelectedStep] = useState(1)
   const [activeTab, setActiveTab] = useState<'overview' | 'sources' | 'changes' | 'before-after' | 'evidence'>('overview')
   const [approvalOpen, setApprovalOpen] = useState(false)
-  const [approvalConfig, setApprovalConfig] = useState({ title: '', desc: '', api: '', guided: false })
+  const [approvalConfig, setApprovalConfig] = useState({ title: '', desc: '', api: '' })
   const [manualLoading, setManualLoading] = useState(false)
+  const [approvalReviewer, setApprovalReviewer] = useState('Compliance Review Board')
+  const [approvalComment, setApprovalComment] = useState('')
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false)
+  const [approvalError, setApprovalError] = useState<string | null>(null)
   const [ingestDone, setIngestDone] = useState(false)
   const [ingestLoading, setIngestLoading] = useState(false)
   const [startPending, setStartPending] = useState(false)
@@ -376,9 +380,54 @@ export default function HomePage() {
     }
   }
 
-  const openApproval = (title: string, desc: string, api: string, guided = false) => {
-    setApprovalConfig({ title, desc, api, guided })
+  const openApproval = (title: string, desc: string, api: string) => {
+    setApprovalConfig({ title, desc, api })
     setApprovalOpen(true)
+  }
+
+  // Inline approval for guided mode — no modal
+  const handleInlineApprove = async () => {
+    if (!approveApiPath) return
+    setApprovalSubmitting(true)
+    setApprovalError(null)
+    try {
+      const res = await fetch(approveApiPath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'approved', reviewerComment: approvalComment, reviewerName: approvalReviewer }),
+      })
+      const data = await res.json() as { ok?: boolean; error?: string }
+      if (!res.ok || !data.ok) { setApprovalError(data.error ?? 'Approval failed'); setApprovalSubmitting(false); return }
+      const contRes = await fetch('/api/guided-run/continue', { method: 'POST' })
+      const contData = await contRes.json() as { ok?: boolean; error?: string }
+      if (!contRes.ok || !contData.ok) { setApprovalError(contData.error ?? 'Failed to continue'); setApprovalSubmitting(false); return }
+      setApprovalComment('')
+      setApprovalSubmitting(false)
+      await Promise.all([fetchDemoState(), fetchGuidedRun()])
+    } catch (err) {
+      setApprovalError(String(err))
+      setApprovalSubmitting(false)
+    }
+  }
+
+  const handleInlineReject = async () => {
+    if (!approveApiPath) return
+    setApprovalSubmitting(true)
+    setApprovalError(null)
+    try {
+      await fetch(approveApiPath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'rejected', reviewerComment: approvalComment, reviewerName: approvalReviewer }),
+      })
+      await fetch('/api/guided-run/stop', { method: 'POST' })
+      setApprovalComment('')
+      await Promise.all([fetchDemoState(), fetchGuidedRun()])
+    } catch (err) {
+      setApprovalError(String(err))
+    } finally {
+      setApprovalSubmitting(false)
+    }
   }
 
   const handleApprovalAction = async (decision: 'approved' | 'rejected', comment: string, reviewer: string) => {
@@ -421,6 +470,8 @@ export default function HomePage() {
   const approvalType = guidedRun?.approvalType
   const approvalMeta = approvalType ? APPROVAL_META[approvalType] : null
   const approveApiPath = approvalType ? APPROVAL_ENDPOINTS[approvalType] : undefined
+  const gateStepNumber = approvalType ? ({ standard: 1, iac: 2, docs: 5 } as Record<string, number>)[approvalType] ?? 0 : 0
+  const gateStepConfig = gateStepNumber ? STEPS.find(s => s.number === gateStepNumber) : null
 
   const step = STEPS[selectedStep - 1]
   const isAllDone = demoState?.state === 'DOCS_APPROVED'
@@ -534,43 +585,93 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Approval gate — this is the ONLY action needed from the user */}
-        {isAtGate && approvalMeta && (
+        {/* Inline approval gate — review content + form in one place */}
+        {isAtGate && approvalMeta && approveApiPath && gateStepConfig && (
           <div id="approval-gate" className="mt-4 rounded-xl overflow-hidden" style={{ border: '3px solid var(--mr-vibrant-blue)' }}>
+            {/* Header */}
             <div className="px-5 py-2.5 flex items-center gap-3" style={{ background: 'var(--mr-vibrant-blue)' }}>
               <span style={{ fontSize: '1.1rem' }}>⏸</span>
               <span className="text-white text-sm font-bold uppercase tracking-wider">
-                Your approval is required — process is paused
+                Step {gateStepNumber} · Approval required — {gateStepConfig.title}
               </span>
             </div>
+
             <div className="p-5" style={{ background: '#EBF0FF' }}>
-              <div className="flex items-start gap-5">
-                <div className="flex-1">
-                  <p className="text-base font-bold mb-1" style={{ color: 'var(--mr-midnight-blue)' }}>
-                    {approvalMeta.title}
-                  </p>
-                  <p className="text-sm mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-                    {approvalMeta.description}
-                  </p>
-                  <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    Click the button to open the review form. Once approved, the process continues automatically.
-                  </p>
+              {/* What to review */}
+              <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-text-muted)' }}>
+                AI has generated the following — review before approving:
+              </p>
+              <ul className="mb-2 space-y-1">
+                {gateStepConfig.writtenTo.map((item, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm" style={{ color: 'var(--mr-midnight-blue)' }}>
+                    <span style={{ color: 'var(--mr-vibrant-blue)', fontWeight: 700 }}>→</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => {
+                  setActiveTab('changes')
+                  document.getElementById('step-detail-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+                className="text-xs mb-4"
+                style={{ color: 'var(--mr-vibrant-blue)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+              >
+                See full proposed changes in step card below ↓
+              </button>
+
+              {/* Inline approval form */}
+              <div className="pt-3 mt-1" style={{ borderTop: '1px solid rgba(51,80,184,0.2)' }}>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Reviewer</label>
+                    <input
+                      type="text"
+                      value={approvalReviewer}
+                      onChange={e => setApprovalReviewer(e.target.value)}
+                      className="w-full px-3 py-1.5 text-sm rounded"
+                      style={{ background: 'white', border: '1px solid var(--color-border)', color: 'var(--mr-midnight-blue)' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Notes (optional)</label>
+                    <input
+                      type="text"
+                      value={approvalComment}
+                      onChange={e => setApprovalComment(e.target.value)}
+                      placeholder="Review notes…"
+                      className="w-full px-3 py-1.5 text-sm rounded"
+                      style={{ background: 'white', border: '1px solid var(--color-border)', color: 'var(--mr-midnight-blue)' }}
+                    />
+                  </div>
                 </div>
-                <button
-                  onClick={() => openApproval(approvalMeta.title, approvalMeta.description, approveApiPath ?? '', true)}
-                  className="flex-shrink-0 px-7 py-3 text-sm font-bold rounded-lg"
-                  style={{
-                    background: 'var(--mr-vibrant-blue)',
-                    color: 'white',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: '0.9rem',
-                    boxShadow: '0 4px 12px rgba(51,80,184,0.4)',
-                    animation: 'pulse 2s cubic-bezier(0.4,0,0.6,1) infinite',
-                  }}
-                >
-                  ✓ Open Review &amp; Approve
-                </button>
+                {approvalError && (
+                  <p className="text-xs mb-2" style={{ color: 'var(--color-danger)' }}>{approvalError}</p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={handleInlineReject}
+                    disabled={approvalSubmitting}
+                    className="px-4 py-2 text-sm rounded disabled:opacity-50"
+                    style={{ background: 'white', color: 'var(--color-danger)', border: '1px solid rgba(192,57,43,0.3)', cursor: 'pointer' }}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    onClick={handleInlineApprove}
+                    disabled={approvalSubmitting}
+                    className="px-6 py-2 text-sm font-bold rounded text-white disabled:opacity-50"
+                    style={{
+                      background: 'var(--mr-vibrant-blue)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(51,80,184,0.4)',
+                      animation: approvalSubmitting ? 'none' : 'pulse 2s cubic-bezier(0.4,0,0.6,1) infinite',
+                    }}
+                  >
+                    {approvalSubmitting ? 'Processing…' : '✓ Approve & Continue'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -591,6 +692,7 @@ export default function HomePage() {
 
       {/* ── Step detail card ─────────────────────────────────────────── */}
       <div
+        id="step-detail-card"
         className="bg-white"
         style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)' }}
       >
@@ -772,10 +874,14 @@ export default function HomePage() {
                 Running automatically…
               </div>
             ) : isAtGate && approvalMeta ? (
-              <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--mr-vibrant-blue)' }}>
+              <button
+                onClick={() => document.getElementById('approval-gate')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                className="flex items-center gap-2 text-sm font-medium"
+                style={{ color: 'var(--mr-vibrant-blue)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+              >
                 <span>⏸</span>
-                Scroll up to review and approve
-              </div>
+                Approval required — scroll up to review ↑
+              </button>
             ) : isStepCompleted ? null : (
               <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                 <span className="inline-block w-3 h-3 rounded-full animate-pulse" style={{ background: 'var(--color-text-muted)' }} />
@@ -812,7 +918,7 @@ export default function HomePage() {
               )}
               {step.approveApi && canApprove && (
                 <button
-                  onClick={() => openApproval(step.approveTitle!, step.approveDesc!, step.approveApi!, false)}
+                  onClick={() => openApproval(step.approveTitle!, step.approveDesc!, step.approveApi!)}
                   className="px-4 py-2 text-sm font-medium rounded text-white transition-colors"
                   style={{ background: 'var(--color-success)', border: 'none', cursor: 'pointer' }}
                 >
@@ -880,21 +986,13 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Single approval modal — handles both manual and guided flows */}
+      {/* Manual-mode approval modal (guided flow uses inline gate above) */}
       <ApprovalModal
         isOpen={approvalOpen}
-        guidedMode={approvalConfig.guided}
-        approveApiPath={approvalConfig.guided ? approvalConfig.api : undefined}
         title={approvalConfig.title}
         description={approvalConfig.desc}
-        onApprove={approvalConfig.guided
-          ? handleApprovalDone
-          : (comment, reviewer) => handleApprovalAction('approved', comment, reviewer)
-        }
-        onReject={approvalConfig.guided
-          ? async () => { await fetchDemoState(); await fetchGuidedRun() }
-          : (comment, reviewer) => handleApprovalAction('rejected', comment, reviewer)
-        }
+        onApprove={(comment, reviewer) => handleApprovalAction('approved', comment, reviewer)}
+        onReject={(comment, reviewer) => handleApprovalAction('rejected', comment, reviewer)}
         onClose={() => setApprovalOpen(false)}
       />
     </div>
