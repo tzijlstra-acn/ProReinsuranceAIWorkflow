@@ -86,6 +86,7 @@ function seed() {
     DELETE FROM regulatory_sources;
     DELETE FROM ddcr_item_history;
     DELETE FROM ddcr_items;
+    DELETE FROM regulatory_scan_reports;
   `)
 
   // --- REGULATION SOURCE ---

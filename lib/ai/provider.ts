@@ -100,6 +100,14 @@ export interface AiProvider {
     requirementData: { articleRef: string; title: string; description: string; obligationType: string },
     regulationShortCode: string
   ): Promise<RemediationSuggestionResult>
+  scanRegulatoryIntelligence(
+    regulation: string,
+    shortCode: string,
+    celexId: string,
+    existingRequirements: Array<{ id: string; articleRef: string; title: string; description: string }>,
+    internalDocuments: Array<{ id: string; title: string; type: string; content: string | null }>,
+    eurLexData?: string
+  ): Promise<RegulatoryIntelligenceScan>
 }
 
 export interface AuditContext {
@@ -172,6 +180,34 @@ export interface RemediationSuggestionResult {
   provenance: AiProvenance
 }
 
+export interface RegulatoryIntelligenceScan {
+  recentUpdates: Array<{
+    title: string
+    date: string
+    type: 'AMENDMENT' | 'IMPLEMENTING_ACT' | 'DELEGATED_ACT' | 'GUIDANCE' | 'CORRIGENDUM' | 'RTS' | 'ITS' | 'OTHER'
+    celexId?: string
+    summary: string
+    sourceDataAvailable: boolean
+  }>
+  impactedRequirementIds: string[]
+  newGaps: Array<{
+    requirementId: string
+    title: string
+    description: string
+    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+    gap_type: 'CONFIGURATION' | 'DOCUMENTATION' | 'PROCESS' | 'GOVERNANCE' | 'APPROVAL'
+    aiAnalysis: string
+  }>
+  policiesNeedingReview: Array<{
+    documentId: string
+    documentTitle: string
+    reason: string
+  }>
+  changeSummary: string
+  overallAssessment: string
+  provenance: AiProvenance
+}
+
 // ─── Model assignment constants ───────────────────────────────────────────────
 // o3    → high-stakes regulatory reasoning (guideline, control design, audit answer)
 // gpt-4o → Terraform code generation (deterministic enough, faster)
@@ -227,6 +263,7 @@ class NoAiProvider implements AiProvider {
   async generateControlChange(): Promise<ControlChangeProposal> { return this.fail() }
   async analyzeRegulatoryDelta(): Promise<RegulatoryDeltaAnalysis> { return this.fail() }
   async suggestRemediationSteps(): Promise<RemediationSuggestionResult> { return this.fail() }
+  async scanRegulatoryIntelligence(): Promise<RegulatoryIntelligenceScan> { return this.fail() }
 }
 
 // ─── Rate-limit helpers ───────────────────────────────────────────────────────
@@ -532,6 +569,93 @@ class OpenAiProvider implements AiProvider {
       timelineWeeks: typeof parsed.timelineWeeks === 'number' ? parsed.timelineWeeks : 4,
       blockers: Array.isArray(parsed.blockers) ? parsed.blockers.map(String) : [],
       summary: String(parsed.summary ?? ''),
+      provenance: this.provenance(model),
+    }
+  }
+
+  async scanRegulatoryIntelligence(
+    regulation: string,
+    shortCode: string,
+    celexId: string,
+    existingRequirements: Array<{ id: string; articleRef: string; title: string; description: string }>,
+    internalDocs: Array<{ id: string; title: string; type: string; content: string | null }>,
+    eurLexData?: string
+  ): Promise<RegulatoryIntelligenceScan> {
+    const model = MODEL_REASONING
+    const system = `You are a senior regulatory intelligence analyst at a European financial institution. You proactively identify real regulatory developments for EU regulations and assess their compliance impact against internal documentation.
+
+Your job:
+1. Identify the most significant regulatory updates since January 2023 for the given regulation: implementing acts, delegated acts, RTS/ITS published by ESAs (EBA, EIOPA, ESMA), Commission corrigenda, and supervisory guidance.
+2. Assess which of the institution's existing requirements are impacted.
+3. Identify specific new compliance gaps arising from these updates.
+4. Flag which internal documents need updating to reflect the new requirements.
+
+Be specific and accurate — these are real regulatory developments, not hypothetical ones. Cite actual CELEX numbers where known.`
+
+    const eurLexSection = eurLexData
+      ? `\n\nLive data retrieved from EUR-Lex CELLAR API:\n${eurLexData}\n`
+      : '\n\n(EUR-Lex API was not reachable — use your expert knowledge of actual regulatory developments for this regulation.)\n'
+
+    const docExcerpts = internalDocs.map(d => ({
+      id: d.id,
+      title: d.title,
+      type: d.type,
+      contentExcerpt: d.content ? d.content.slice(0, 800) : null,
+    }))
+
+    const user = `Regulation: ${regulation} (${shortCode})
+CELEX: ${celexId}
+Scan date: ${new Date().toISOString().slice(0, 10)}
+${eurLexSection}
+Existing internal requirements (use these exact IDs in your response):
+${JSON.stringify(existingRequirements, null, 2)}
+
+Internal documents to check:
+${JSON.stringify(docExcerpts, null, 2)}
+
+Return a JSON object with exactly these keys:
+- recentUpdates: array of objects (the actual regulatory developments you identified), each with: title (string, official or descriptive title), date (string, YYYY-MM-DD, best estimate if exact date unknown), type (one of "AMENDMENT"|"IMPLEMENTING_ACT"|"DELEGATED_ACT"|"GUIDANCE"|"CORRIGENDUM"|"RTS"|"ITS"|"OTHER"), celexId (string or null, e.g. "32024R1234"), summary (string, 2-3 sentences describing what changed and why it matters), sourceDataAvailable (boolean — true only if from EUR-Lex data above, false if from your training knowledge)
+- impactedRequirementIds: array of requirement IDs from the provided list that are touched by these updates
+- newGaps: array of objects (gaps the institution now has given these updates), each with: requirementId (from provided list), title (string), description (string), severity ("CRITICAL"|"HIGH"|"MEDIUM"|"LOW"), gap_type ("CONFIGURATION"|"DOCUMENTATION"|"PROCESS"|"GOVERNANCE"|"APPROVAL"), aiAnalysis (string, specific explanation of the gap)
+- policiesNeedingReview: array of objects, each with: documentId (from provided list), documentTitle (string), reason (string)
+- changeSummary: string (2-3 paragraph executive summary of all updates found, for compliance records)
+- overallAssessment: string (1-2 sentence overall compliance posture impact)
+
+Return only the JSON object.`
+
+    const parsed = await this.chat(model, system, user)
+    const VALID_UPDATE_TYPES = ['AMENDMENT', 'IMPLEMENTING_ACT', 'DELEGATED_ACT', 'GUIDANCE', 'CORRIGENDUM', 'RTS', 'ITS', 'OTHER'] as const
+    type UpdateType = typeof VALID_UPDATE_TYPES[number]
+
+    const rawUpdates = Array.isArray(parsed.recentUpdates) ? parsed.recentUpdates as Array<Record<string, unknown>> : []
+    const rawGaps = Array.isArray(parsed.newGaps) ? parsed.newGaps as Array<Record<string, unknown>> : []
+    const rawPolicies = Array.isArray(parsed.policiesNeedingReview) ? parsed.policiesNeedingReview as Array<Record<string, unknown>> : []
+
+    return {
+      recentUpdates: rawUpdates.map(u => ({
+        title: String(u.title ?? ''),
+        date: String(u.date ?? new Date().toISOString().slice(0, 10)),
+        type: (VALID_UPDATE_TYPES.includes(String(u.type) as UpdateType) ? String(u.type) : 'OTHER') as UpdateType,
+        celexId: u.celexId ? String(u.celexId) : undefined,
+        summary: String(u.summary ?? ''),
+        sourceDataAvailable: Boolean(u.sourceDataAvailable),
+      })),
+      impactedRequirementIds: Array.isArray(parsed.impactedRequirementIds) ? parsed.impactedRequirementIds.map(String) : [],
+      newGaps: rawGaps.map(g => ({
+        requirementId: String(g.requirementId ?? ''),
+        title: String(g.title ?? ''),
+        description: String(g.description ?? ''),
+        severity: (['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(String(g.severity)) ? String(g.severity) : 'MEDIUM') as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW',
+        gap_type: (['CONFIGURATION', 'DOCUMENTATION', 'PROCESS', 'GOVERNANCE', 'APPROVAL'].includes(String(g.gap_type)) ? String(g.gap_type) : 'PROCESS') as 'CONFIGURATION' | 'DOCUMENTATION' | 'PROCESS' | 'GOVERNANCE' | 'APPROVAL',
+        aiAnalysis: String(g.aiAnalysis ?? ''),
+      })),
+      policiesNeedingReview: rawPolicies.map(p => ({
+        documentId: String(p.documentId ?? ''),
+        documentTitle: String(p.documentTitle ?? ''),
+        reason: String(p.reason ?? ''),
+      })),
+      changeSummary: String(parsed.changeSummary ?? ''),
+      overallAssessment: String(parsed.overallAssessment ?? ''),
       provenance: this.provenance(model),
     }
   }

@@ -552,6 +552,22 @@ export const ddcrItemHistory = sqliteTable('ddcr_item_history', {
   changeReason: text('change_reason'),
 })
 
+// Regulatory intelligence scan history — records of each AI-triggered scan
+export const regulatoryScanReports = sqliteTable('regulatory_scan_reports', {
+  id: text('id').primaryKey(),
+  scannedAt: text('scanned_at').notNull(),
+  status: text('status').notNull().default('COMPLETE'), // COMPLETE | PARTIAL | FAILED
+  eurLexConnected: integer('eur_lex_connected', { mode: 'boolean' }).notNull().default(false),
+  sourcesScanned: integer('sources_scanned').notNull().default(0),
+  updatesFound: text('updates_found').notNull().default('[]'), // JSON
+  newVersionsCreated: integer('new_versions_created').notNull().default(0),
+  newGapsCreated: integer('new_gaps_created').notNull().default(0),
+  controlsImpacted: text('controls_impacted').notNull().default('[]'), // JSON
+  policiesImpacted: text('policies_impacted').notNull().default('[]'), // JSON
+  aiSummary: text('ai_summary'),
+  error: text('error'),
+})
+
 // Current compliance status for DDCR reporting — requirement and product level
 export const ddcrReportingRecords = sqliteTable('ddcr_reporting_records', {
   id: text('id').primaryKey(),

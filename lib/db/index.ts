@@ -534,6 +534,21 @@ sqlite.exec(`
     new_execution_status TEXT,
     change_reason TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS regulatory_scan_reports (
+    id TEXT PRIMARY KEY,
+    scanned_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'COMPLETE',
+    eur_lex_connected INTEGER NOT NULL DEFAULT 0,
+    sources_scanned INTEGER NOT NULL DEFAULT 0,
+    updates_found TEXT NOT NULL DEFAULT '[]',
+    new_versions_created INTEGER NOT NULL DEFAULT 0,
+    new_gaps_created INTEGER NOT NULL DEFAULT 0,
+    controls_impacted TEXT NOT NULL DEFAULT '[]',
+    policies_impacted TEXT NOT NULL DEFAULT '[]',
+    ai_summary TEXT,
+    error TEXT
+  );
 `)
 
 export const db = drizzle(sqlite, { schema })

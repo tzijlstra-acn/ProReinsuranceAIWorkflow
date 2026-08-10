@@ -352,6 +352,29 @@ export default function ComplianceHubPage() {
             </button>
           </div>
 
+          {/* Regulatory Intelligence Scanner panel */}
+          <div
+            className="rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap"
+            style={{ background: '#EFF6FF', border: '1px solid #BFDBFE' }}
+          >
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <span className="text-base mt-0.5" style={{ color: '#003781' }}>⚡</span>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: '#003781' }}>Regulatory Intelligence Scanner</p>
+                <p className="text-xs mt-0.5" style={{ color: '#1E40AF' }}>
+                  Live EUR-Lex CELLAR API + o3 AI — scans DORA, NIS2 &amp; GDPR for implementing acts, RTS/ITS, and new guidance. Checks against all controls and policies.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/compliance-hub/regulatory-intelligence"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded flex-shrink-0"
+              style={{ background: '#003781', color: 'white', textDecoration: 'none' }}
+            >
+              ⚡ Open Scanner →
+            </Link>
+          </div>
+
           {/* Regulations table */}
           <section>
             <div className="flex items-center justify-between mb-3">
