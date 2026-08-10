@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Types
+// Scan result types
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface RegUpdate {
@@ -33,24 +33,6 @@ interface ScanGap {
   detectedAt: string; description: string; aiAnalysis: string | null
   sourceShortCode: string; requirementRef: string; requirementTitle: string
 }
-interface DocUpdate {
-  documentId: string; documentTitle: string; currentContent: string
-  proposedContent: string; changeSummary: string; addedClauses: string[]
-}
-interface ControlProposal {
-  title: string; description: string; changeType: string; estimatedEffort: string
-  proposedChanges: {
-    summary: string; steps: string[]; documentsToUpdate: string[]
-    technicalChanges: string; acceptanceCriteria: string[]
-  }
-}
-interface GapProposal {
-  controlChangeId: string
-  gap: { id: string; title: string; severity: string; gapType: string; sourceShortCode: string; requirementRef: string; requirementTitle: string; aiAnalysis: string | null }
-  controlProposal: ControlProposal
-  documentUpdates: DocUpdate[]
-}
-// Raw gap shape from the API (ComplianceGapWithDetail)
 interface ApiGap {
   id: string; title: string; severity: string; gapType: string; status: string
   detectedAt: string; description: string; aiAnalysis: string | null
@@ -58,7 +40,43 @@ interface ApiGap {
   source: { id: string; shortCode: string; name: string } | null
 }
 
-type ReviewState = 'idle' | 'generating' | 'ready' | 'approved' | 'rejected'
+// ─────────────────────────────────────────────────────────────────────────────
+// Linked proposal types (from propose-all)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface RegTrigger {
+  articleRef: string
+  clauseText: string
+  changeNature: string
+  complianceDeadline: string | null
+}
+interface LinkedControl {
+  isNew: boolean
+  currentState: { title: string; description: string; steps: string[]; acceptanceCriteria: string[] } | null
+  title: string; description: string; changeType: string
+  steps: string[]; acceptanceCriteria: string[]; estimatedEffort: string
+  triggerRationale: string
+}
+interface LinkedDoc {
+  documentId: string; documentTitle: string; isNew: boolean; section: string
+  currentContent: string; proposedContent: string
+  changeSummary: string; addedClauses: string[]; triggerRationale: string
+}
+interface LinkedGapProposal {
+  controlChangeId: string
+  trigger: RegTrigger
+  control: LinkedControl
+  documents: LinkedDoc[]
+}
+
+interface GapEntry {
+  gap: ScanGap
+  proposal: LinkedGapProposal | null
+  state: 'pending' | 'analysing' | 'ready' | 'approved' | 'rejected'
+  approver: string
+  busy: boolean
+  error: string | null
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design tokens
@@ -132,44 +150,71 @@ function KpiTile({ label, value, color, sub }: { label: string; value: number | 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Document before/after diff
+// Linked proposal review card
 // ─────────────────────────────────────────────────────────────────────────────
 
-function DocDiff({ u }: { u: DocUpdate }) {
+function LinkedDocSection({ doc, idx }: { doc: LinkedDoc; idx: number }) {
   const [expanded, setExpanded] = useState(false)
-  const clip = (text: string) => !expanded && text.length > 400 ? text.slice(0, 400) + '…' : text
-
+  const clip = (text: string) => !expanded && text.length > 500 ? text.slice(0, 500) + '…' : text
   return (
-    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #D0D7E3' }}>
-      <div className="px-3 py-2 flex items-center justify-between" style={{ background: '#F9FAFB', borderBottom: '1px solid #D0D7E3' }}>
-        <span className="text-xs font-semibold" style={{ color: MR_MIDNIGHT }}>📄 {u.documentTitle}</span>
-        <button onClick={() => setExpanded(e => !e)} className="text-xs" style={{ color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer' }}>
+    <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${doc.isNew ? '#BBF7D0' : '#D0D7E3'}` }}>
+      {/* Header */}
+      <div className="px-4 py-2.5 flex items-start justify-between gap-3 flex-wrap" style={{ background: doc.isNew ? '#F0FAF6' : '#F9FAFB', borderBottom: `1px solid ${doc.isNew ? '#BBF7D0' : '#D0D7E3'}` }}>
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold" style={{ color: '#6B7280' }}>③{idx > 0 ? `+${idx}` : ''}</span>
+            <span className="text-xs font-semibold" style={{ color: MR_MIDNIGHT }}>📄 {doc.documentTitle}</span>
+            {doc.isNew && (
+              <span className="text-xs px-2 py-0.5 rounded font-bold" style={{ background: '#D1FAE5', color: MR_GREEN }}>NEW DOCUMENT</span>
+            )}
+            {!doc.isNew && doc.section && (
+              <span className="text-xs px-2 py-0.5 rounded font-mono" style={{ background: '#EBF5FF', color: MR_MIDNIGHT }}>{doc.section}</span>
+            )}
+          </div>
+          {doc.triggerRationale && (
+            <p className="text-xs mt-1 leading-relaxed" style={{ color: '#6B7280' }}>
+              <span style={{ color: MR_AMBER, fontWeight: 700 }}>Why: </span>{doc.triggerRationale}
+            </p>
+          )}
+        </div>
+        <button onClick={() => setExpanded(e => !e)} className="text-xs flex-shrink-0" style={{ color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer' }}>
           {expanded ? 'Collapse' : 'Show full diff'}
         </button>
       </div>
-      {u.changeSummary && (
-        <div className="px-3 py-2 text-xs" style={{ background: '#FFFBEB', borderBottom: '1px solid #FDE68A', color: '#92400E' }}>
-          <strong>What changes:</strong> {u.changeSummary}
+      {/* changeSummary strip */}
+      {doc.changeSummary && (
+        <div className="px-4 py-2 text-xs" style={{ background: '#FFFBEB', borderBottom: '1px solid #FDE68A', color: '#92400E' }}>
+          <strong>{doc.isNew ? 'New document:' : 'What changes:'}</strong> {doc.changeSummary}
         </div>
       )}
+      {/* Before / After */}
       <div className="grid grid-cols-2 divide-x" style={{ divideColor: '#D0D7E3' } as React.CSSProperties}>
         <div className="p-3">
-          <p className="text-xs font-bold mb-2" style={{ color: MR_RED }}>BEFORE — current</p>
-          <pre className="text-xs leading-relaxed whitespace-pre-wrap font-mono" style={{ color: '#374151', maxHeight: expanded ? 'none' : 200, overflow: 'hidden' }}>
-            {clip(u.currentContent)}
-          </pre>
+          <p className="text-xs font-bold mb-2" style={{ color: doc.isNew ? '#6B7280' : MR_RED }}>
+            {doc.isNew ? 'BEFORE — no document' : 'BEFORE — current content'}
+          </p>
+          {doc.isNew || !doc.currentContent ? (
+            <p className="text-xs italic" style={{ color: '#9CA3AF' }}>No existing document — this will create a new policy document.</p>
+          ) : (
+            <pre className="text-xs leading-relaxed whitespace-pre-wrap font-mono" style={{ color: '#374151', maxHeight: expanded ? 'none' : 200, overflow: 'hidden' }}>
+              {clip(doc.currentContent)}
+            </pre>
+          )}
         </div>
         <div className="p-3" style={{ background: '#F0FAF6' }}>
-          <p className="text-xs font-bold mb-2" style={{ color: MR_GREEN }}>AFTER — proposed</p>
+          <p className="text-xs font-bold mb-2" style={{ color: MR_GREEN }}>
+            {doc.isNew ? 'AFTER — proposed new document' : 'AFTER — proposed changes'}
+          </p>
           <pre className="text-xs leading-relaxed whitespace-pre-wrap font-mono" style={{ color: '#374151', maxHeight: expanded ? 'none' : 200, overflow: 'hidden' }}>
-            {clip(u.proposedContent)}
+            {clip(doc.proposedContent)}
           </pre>
         </div>
       </div>
-      {u.addedClauses.length > 0 && (
-        <div className="px-3 py-2 space-y-0.5" style={{ background: '#F0FAF6', borderTop: '1px solid #BBF7D0' }}>
-          <p className="text-xs font-semibold mb-1" style={{ color: MR_GREEN }}>Added / changed clauses:</p>
-          {u.addedClauses.map((c, i) => (
+      {/* Added clauses */}
+      {doc.addedClauses.length > 0 && (
+        <div className="px-4 py-2 space-y-0.5" style={{ background: '#F0FAF6', borderTop: '1px solid #BBF7D0' }}>
+          <p className="text-xs font-semibold mb-1" style={{ color: MR_GREEN }}>{doc.isNew ? 'Clauses in new document:' : 'Added / changed clauses:'}</p>
+          {doc.addedClauses.map((c, i) => (
             <div key={i} className="flex gap-1.5 text-xs" style={{ color: '#065F46' }}>
               <span className="flex-shrink-0 font-bold">+</span><span>{c}</span>
             </div>
@@ -180,121 +225,19 @@ function DocDiff({ u }: { u: DocUpdate }) {
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Control before/after diff
-// ─────────────────────────────────────────────────────────────────────────────
+function LinkedProposalCard({
+  entry,
+  onApproverChange,
+  onApprove,
+  onReject,
+}: {
+  entry: GapEntry
+  onApproverChange: (v: string) => void
+  onApprove: () => void
+  onReject: () => void
+}) {
+  const { gap, proposal, state, approver, busy, error } = entry
 
-function ControlDiff({ p }: { p: ControlProposal }) {
-  return (
-    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #D0D7E3' }}>
-      <div className="px-3 py-2" style={{ background: '#F9FAFB', borderBottom: '1px solid #D0D7E3' }}>
-        <span className="text-xs font-semibold" style={{ color: MR_MIDNIGHT }}>🔧 Control Change</span>
-      </div>
-      <div className="grid grid-cols-2 divide-x" style={{ divideColor: '#D0D7E3' } as React.CSSProperties}>
-        <div className="p-3">
-          <p className="text-xs font-bold mb-2" style={{ color: MR_RED }}>BEFORE — current</p>
-          <p className="text-xs italic" style={{ color: '#9CA3AF' }}>No control exists for this gap.</p>
-        </div>
-        <div className="p-3" style={{ background: '#F0FAF6' }}>
-          <p className="text-xs font-bold mb-2" style={{ color: MR_GREEN }}>AFTER — proposed</p>
-          <p className="text-sm font-semibold mb-1" style={{ color: MR_MIDNIGHT }}>{p.title}</p>
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold mb-2" style={{ background: '#EBF5FF', color: MR_MIDNIGHT }}>{p.changeType}</span>
-          <p className="text-xs mb-2" style={{ color: '#374151' }}>{p.description}</p>
-          {p.proposedChanges.steps.length > 0 && (
-            <>
-              <p className="text-xs font-semibold mb-1" style={{ color: MR_MIDNIGHT }}>Implementation steps:</p>
-              <ol className="space-y-0.5 list-decimal list-inside">
-                {p.proposedChanges.steps.slice(0, 5).map((step, i) => (
-                  <li key={i} className="text-xs" style={{ color: '#374151' }}>{step}</li>
-                ))}
-              </ol>
-            </>
-          )}
-          {p.estimatedEffort && (
-            <p className="text-xs mt-2" style={{ color: '#6B7280' }}>Effort: <strong>{p.estimatedEffort}</strong></p>
-          )}
-        </div>
-      </div>
-      {p.proposedChanges.acceptanceCriteria.length > 0 && (
-        <div className="px-3 py-2 space-y-0.5" style={{ background: '#F0FAF6', borderTop: '1px solid #BBF7D0' }}>
-          <p className="text-xs font-semibold mb-1" style={{ color: MR_GREEN }}>Acceptance criteria:</p>
-          {p.proposedChanges.acceptanceCriteria.map((c, i) => (
-            <div key={i} className="flex gap-1.5 text-xs" style={{ color: '#065F46' }}>
-              <span className="flex-shrink-0">✓</span><span>{c}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Self-contained gap review card
-// ─────────────────────────────────────────────────────────────────────────────
-
-function GapReviewCard({ gap }: { gap: ScanGap }) {
-  const [state, setState] = useState<ReviewState>('idle')
-  const [busy, setBusy] = useState(false)
-  const [proposal, setProposal] = useState<GapProposal | null>(null)
-  const [approver, setApprover] = useState('')
-  const [error, setError] = useState<string | null>(null)
-
-  async function propose() {
-    setState('generating')
-    setError(null)
-    try {
-      const res = await fetch(`/api/compliance-hub/gaps/${gap.id}/propose-all`, { method: 'POST' })
-      const json = await res.json() as GapProposal & { error?: string }
-      if (!res.ok || json.error) throw new Error(json.error ?? 'Failed to generate proposal')
-      setProposal(json)
-      setState('ready')
-    } catch (err) {
-      setError(String(err))
-      setState('idle')
-    }
-  }
-
-  async function approve() {
-    if (!approver.trim()) return
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/compliance-hub/gaps/${gap.id}/approve-all`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approvedBy: approver.trim(), action: 'approve' }),
-      })
-      const json = await res.json() as { error?: string }
-      if (!res.ok || json.error) throw new Error(json.error ?? 'Approval failed')
-      setState('approved')
-    } catch (err) {
-      setError(String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function reject() {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/compliance-hub/gaps/${gap.id}/approve-all`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reject' }),
-      })
-      const json = await res.json() as { error?: string }
-      if (!res.ok || json.error) throw new Error(json.error ?? 'Reject failed')
-      setState('rejected')
-    } catch (err) {
-      setError(String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // ── Resolved states ──
   if (state === 'approved') {
     return (
       <div className="rounded-xl px-5 py-4 flex items-center gap-3" style={{ background: '#F0FAF6', border: '1px solid #BBF7D0' }}>
@@ -324,60 +267,151 @@ function GapReviewCard({ gap }: { gap: ScanGap }) {
   return (
     <div className="bg-white rounded-xl overflow-hidden" style={{ border: '1px solid #D0D7E3', boxShadow: '0 1px 4px rgba(0,56,129,0.06)' }}>
       {/* Gap header */}
-      <div className="px-5 py-4" style={{ borderBottom: state === 'ready' ? '1px solid #D0D7E3' : 'none' }}>
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            <SourceChip s={gap.sourceShortCode} />
-            <SevBadge v={gap.severity} />
-            <span className="text-xs px-2 py-0.5 rounded font-mono" style={{ background: '#F3F4F6', color: '#374151' }}>{gap.requirementRef}</span>
-            <span className="text-xs px-2 py-0.5 rounded" style={{ background: '#F3F4F6', color: '#6B7280' }}>{gap.gapType}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {state === 'idle' && (
-              <button onClick={propose}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded"
-                style={{ background: MR_VIOLET, color: 'white', border: 'none', cursor: 'pointer' }}>
-                ✦ Generate Proposal
-              </button>
-            )}
-            {state === 'generating' && (
-              <span className="flex items-center gap-1.5 text-xs" style={{ color: MR_VIOLET }}>
-                <Spinner size={14} /> Generating with o3…
-              </span>
-            )}
-            {state === 'ready' && (
-              <span className="text-xs px-2 py-0.5 rounded" style={{ background: '#D1FAE5', color: '#065F46' }}>Proposal ready</span>
-            )}
-          </div>
+      <div className="px-5 py-4" style={{ borderBottom: '1px solid #D0D7E3' }}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <SourceChip s={gap.sourceShortCode} />
+          <SevBadge v={gap.severity} />
+          <span className="text-xs px-2 py-0.5 rounded font-mono" style={{ background: '#F3F4F6', color: '#374151' }}>{gap.requirementRef}</span>
+          <span className="text-xs px-2 py-0.5 rounded" style={{ background: '#F3F4F6', color: '#6B7280' }}>{gap.gapType}</span>
+          {state === 'analysing' && (
+            <span className="flex items-center gap-1 text-xs" style={{ color: MR_VIOLET }}>
+              <Spinner size={12} /> Analysing with o3…
+            </span>
+          )}
         </div>
-
-        <h3 className="text-sm font-bold mt-2.5" style={{ color: MR_MIDNIGHT }}>{gap.title}</h3>
+        <h3 className="text-sm font-bold mt-2" style={{ color: MR_MIDNIGHT }}>{gap.title}</h3>
         <p className="text-xs mt-0.5" style={{ color: '#6B7280' }}>{gap.requirementTitle}</p>
         {gap.aiAnalysis && (
           <p className="text-xs mt-1.5 leading-relaxed" style={{ color: '#374151' }}>
             <span className="font-semibold" style={{ color: MR_VIOLET }}>AI: </span>{gap.aiAnalysis}
           </p>
         )}
-        {error && <p className="text-xs mt-2" style={{ color: MR_RED }}>{error}</p>}
+        {error && <p className="text-xs mt-2" style={{ color: MR_RED }}>Error: {error}</p>}
       </div>
 
-      {/* Before / After proposal */}
+      {/* Proposal blocks — only when ready */}
       {state === 'ready' && proposal && (
         <div className="p-5 space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#6B7280' }}>
-            Proposed changes — review before approving
-          </p>
 
-          {/* Control diff */}
-          <ControlDiff p={proposal.controlProposal} />
+          {/* ① Regulation trigger */}
+          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #FDE68A' }}>
+            <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: '#FEF3C7', borderBottom: '1px solid #FDE68A' }}>
+              <span className="text-xs font-bold" style={{ color: MR_AMBER }}>①</span>
+              <span className="text-xs font-bold uppercase tracking-wide" style={{ color: MR_AMBER }}>Regulation Trigger</span>
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded" style={{ background: '#FDE68A', color: '#78350F' }}>{proposal.trigger.articleRef}</span>
+              {proposal.trigger.changeNature && (
+                <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'white', color: MR_AMBER, border: '1px solid #FDE68A' }}>{proposal.trigger.changeNature}</span>
+              )}
+            </div>
+            <div className="px-4 py-3" style={{ background: '#FFFBEB' }}>
+              <blockquote className="text-sm leading-relaxed italic border-l-2 pl-3 my-0" style={{ borderColor: MR_AMBER, color: '#78350F' }}>
+                &ldquo;{proposal.trigger.clauseText}&rdquo;
+              </blockquote>
+              {proposal.trigger.complianceDeadline && (
+                <p className="text-xs mt-2 font-semibold" style={{ color: MR_RED }}>
+                  Compliance deadline: {proposal.trigger.complianceDeadline}
+                </p>
+              )}
+            </div>
+          </div>
 
-          {/* Document diffs */}
-          {proposal.documentUpdates.length > 0 ? (
+          {/* ② Control change */}
+          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #BFDBFE' }}>
+            <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap" style={{ background: '#EBF5FF', borderBottom: '1px solid #BFDBFE' }}>
+              <span className="text-xs font-bold" style={{ color: MR_MIDNIGHT }}>②</span>
+              <span className="text-xs font-bold uppercase tracking-wide" style={{ color: MR_MIDNIGHT }}>Control Change</span>
+              <span className="text-xs px-2 py-0.5 rounded font-semibold" style={{ background: proposal.control.isNew ? '#D1FAE5' : '#FEF3C7', color: proposal.control.isNew ? MR_GREEN : MR_AMBER, border: `1px solid ${proposal.control.isNew ? '#BBF7D0' : '#FDE68A'}` }}>
+                {proposal.control.isNew ? 'NEW CONTROL' : 'AMEND EXISTING'}
+              </span>
+              <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'white', color: '#6B7280', border: '1px solid #BFDBFE' }}>
+                {proposal.control.changeType.replace(/_/g, ' ')}
+              </span>
+            </div>
+            {proposal.control.triggerRationale && (
+              <div className="px-4 py-2 text-xs" style={{ background: '#F0F7FF', borderBottom: '1px solid #BFDBFE' }}>
+                <span style={{ color: MR_AMBER, fontWeight: 700 }}>Because of ①: </span>
+                <span style={{ color: '#374151' }}>{proposal.control.triggerRationale}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 divide-x" style={{ divideColor: '#BFDBFE' } as React.CSSProperties}>
+              {/* BEFORE */}
+              <div className="p-4">
+                <p className="text-xs font-bold mb-2" style={{ color: proposal.control.isNew ? '#6B7280' : MR_RED }}>
+                  {proposal.control.isNew ? 'BEFORE — no control' : 'BEFORE — current control'}
+                </p>
+                {proposal.control.currentState ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold" style={{ color: MR_MIDNIGHT }}>{proposal.control.currentState.title}</p>
+                    <p className="text-xs leading-relaxed" style={{ color: '#374151' }}>{proposal.control.currentState.description}</p>
+                    {proposal.control.currentState.steps.length > 0 && (
+                      <>
+                        <p className="text-xs font-semibold mt-1" style={{ color: '#6B7280' }}>Current steps:</p>
+                        <ol className="space-y-0.5 list-decimal list-inside">
+                          {proposal.control.currentState.steps.slice(0, 5).map((s, i) => (
+                            <li key={i} className="text-xs" style={{ color: '#4A5568' }}>{s}</li>
+                          ))}
+                        </ol>
+                      </>
+                    )}
+                    {proposal.control.currentState.acceptanceCriteria.length > 0 && (
+                      <>
+                        <p className="text-xs font-semibold mt-1" style={{ color: '#6B7280' }}>Current criteria:</p>
+                        {proposal.control.currentState.acceptanceCriteria.slice(0, 4).map((c, i) => (
+                          <div key={i} className="flex gap-1 text-xs" style={{ color: '#4A5568' }}>
+                            <span className="flex-shrink-0">•</span><span>{c}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs italic" style={{ color: '#9CA3AF' }}>No control currently exists for this requirement.</p>
+                )}
+              </div>
+              {/* AFTER */}
+              <div className="p-4" style={{ background: '#F7FBFF' }}>
+                <p className="text-xs font-bold mb-2" style={{ color: MR_GREEN }}>
+                  {proposal.control.isNew ? 'AFTER — new control' : 'AFTER — amended control'}
+                </p>
+                <p className="text-sm font-semibold mb-1" style={{ color: MR_MIDNIGHT }}>{proposal.control.title}</p>
+                <p className="text-xs mb-3 leading-relaxed" style={{ color: '#374151' }}>{proposal.control.description}</p>
+                {proposal.control.steps.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold mb-1" style={{ color: MR_MIDNIGHT }}>
+                      {proposal.control.isNew ? 'Implementation steps:' : 'Updated steps (full set):'}
+                    </p>
+                    <ol className="space-y-1 list-decimal list-inside mb-2">
+                      {proposal.control.steps.slice(0, 6).map((step, i) => (
+                        <li key={i} className="text-xs leading-relaxed" style={{ color: '#374151' }}>{step}</li>
+                      ))}
+                    </ol>
+                  </>
+                )}
+                {proposal.control.estimatedEffort && (
+                  <p className="text-xs" style={{ color: '#6B7280' }}>Effort: <strong>{proposal.control.estimatedEffort}</strong></p>
+                )}
+              </div>
+            </div>
+            {proposal.control.acceptanceCriteria.length > 0 && (
+              <div className="px-4 py-3 space-y-1" style={{ background: '#F0FAF6', borderTop: '1px solid #BBF7D0' }}>
+                <p className="text-xs font-semibold mb-1" style={{ color: MR_GREEN }}>
+                  {proposal.control.isNew ? 'Acceptance criteria:' : 'Updated acceptance criteria (full set):'}
+                </p>
+                {proposal.control.acceptanceCriteria.map((c, i) => (
+                  <div key={i} className="flex gap-1.5 text-xs" style={{ color: '#065F46' }}>
+                    <span className="flex-shrink-0">✓</span><span>{c}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ③ Document changes */}
+          {proposal.documents.length > 0 ? (
             <div className="space-y-3">
-              <p className="text-xs font-semibold" style={{ color: MR_MIDNIGHT }}>
-                Policy / document updates ({proposal.documentUpdates.length}):
-              </p>
-              {proposal.documentUpdates.map(u => <DocDiff key={u.documentId} u={u} />)}
+              {proposal.documents.map((doc, i) => (
+                <LinkedDocSection key={doc.documentId} doc={doc} idx={i} />
+              ))}
             </div>
           ) : (
             <div className="rounded-lg px-4 py-3 text-xs" style={{ background: '#F9FAFB', border: '1px solid #D0D7E3', color: '#6B7280' }}>
@@ -391,20 +425,20 @@ function GapReviewCard({ gap }: { gap: ScanGap }) {
               type="text"
               placeholder="Approver name…"
               value={approver}
-              onChange={e => setApprover(e.target.value)}
+              onChange={e => onApproverChange(e.target.value)}
               className="text-sm px-3 py-1.5 rounded flex-1 min-w-40"
               style={{ border: '1px solid #D0D7E3', background: 'white', color: MR_MIDNIGHT, outline: 'none' }}
             />
             <button
-              onClick={reject}
+              onClick={onReject}
               disabled={busy}
               className="text-sm font-semibold px-4 py-1.5 rounded"
-              style={{ background: 'white', color: MR_RED, border: `1px solid ${MR_RED}`, cursor: 'pointer', opacity: busy ? 0.6 : 1 }}
+              style={{ background: 'white', color: MR_RED, border: `1px solid ${MR_RED}`, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}
             >
               Reject
             </button>
             <button
-              onClick={approve}
+              onClick={onApprove}
               disabled={!approver.trim() || busy}
               className="flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded"
               style={{
@@ -413,7 +447,7 @@ function GapReviewCard({ gap }: { gap: ScanGap }) {
                 cursor: !approver.trim() || busy ? 'not-allowed' : 'pointer',
               }}
             >
-              {busy ? <><Spinner size={14} /> Applying…</> : <>✓ Approve &amp; Apply</>}
+              {busy ? <><Spinner size={14} /> Applying…</> : <>✓ Approve &amp; Apply All</>}
             </button>
           </div>
         </div>
@@ -434,8 +468,11 @@ export default function RegulatoryIntelligencePage() {
   const [history, setHistory] = useState<ScanReport[]>([])
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [activeTab, setActiveTab] = useState<'updates' | 'controls' | 'policies'>('updates')
-  const [scanGaps, setScanGaps] = useState<ScanGap[]>([])
-  const [loadingGaps, setLoadingGaps] = useState(false)
+
+  // Impact analysis phase
+  const [analysisPhase, setAnalysisPhase] = useState<'none' | 'loading' | 'running' | 'done'>('none')
+  const [analysisProgress, setAnalysisProgress] = useState('')
+  const [gapEntries, setGapEntries] = useState<GapEntry[]>([])
 
   useEffect(() => { loadHistory() }, [])
 
@@ -450,40 +487,13 @@ export default function RegulatoryIntelligencePage() {
     }
   }
 
-  async function loadScanGaps() {
-    setLoadingGaps(true)
-    try {
-      // API returns ComplianceGapWithDetail[] directly (not wrapped)
-      const res = await fetch('/api/compliance-hub/gaps')
-      const allGaps = await res.json() as ApiGap[]
-      // Keep only gaps created in the last 10 minutes
-      const recent = allGaps
-        .filter(g => Date.now() - new Date(g.detectedAt).getTime() < 10 * 60 * 1000)
-        .map(g => ({
-          id: g.id,
-          title: g.title,
-          severity: g.severity,
-          gapType: g.gapType,
-          status: g.status,
-          detectedAt: g.detectedAt,
-          description: g.description,
-          aiAnalysis: g.aiAnalysis,
-          sourceShortCode: g.source?.shortCode ?? '',
-          requirementRef: g.requirement?.articleRef ?? '',
-          requirementTitle: g.requirement?.title ?? '',
-        }))
-      setScanGaps(recent)
-    } catch { /* ignore */ } finally {
-      setLoadingGaps(false)
-    }
-  }
-
   async function runScan() {
     setScanning(true)
     setStepIdx(0)
     setResult(null)
     setScanError(null)
-    setScanGaps([])
+    setAnalysisPhase('none')
+    setGapEntries([])
 
     const stepTimer = setInterval(() => {
       setStepIdx(prev => (prev < SCAN_STEPS.length - 1 ? prev + 1 : prev))
@@ -498,13 +508,103 @@ export default function RegulatoryIntelligencePage() {
       } else {
         setResult(json)
         setActiveTab('updates')
-        await Promise.all([loadHistory(), json.newGapsCreated > 0 ? loadScanGaps() : Promise.resolve()])
+        await loadHistory()
       }
     } catch (err) {
       clearInterval(stepTimer)
       setScanError(String(err))
     } finally {
       setScanning(false)
+    }
+  }
+
+  async function runImpactAnalysis() {
+    setAnalysisPhase('loading')
+    setAnalysisProgress('Loading gaps from this scan…')
+
+    try {
+      const res = await fetch('/api/compliance-hub/gaps')
+      const allGaps = await res.json() as ApiGap[]
+      const recent = allGaps
+        .filter(g => Date.now() - new Date(g.detectedAt).getTime() < 10 * 60 * 1000)
+        .map(g => ({
+          id: g.id, title: g.title, severity: g.severity, gapType: g.gapType, status: g.status,
+          detectedAt: g.detectedAt, description: g.description, aiAnalysis: g.aiAnalysis,
+          sourceShortCode: g.source?.shortCode ?? '',
+          requirementRef: g.requirement?.articleRef ?? '',
+          requirementTitle: g.requirement?.title ?? '',
+        }))
+
+      if (recent.length === 0) {
+        setAnalysisPhase('done')
+        setAnalysisProgress('No recent gaps found.')
+        return
+      }
+
+      const initialEntries: GapEntry[] = recent.map(gap => ({
+        gap, proposal: null, state: 'pending', approver: '', busy: false, error: null,
+      }))
+      setGapEntries(initialEntries)
+      setAnalysisPhase('running')
+
+      for (let i = 0; i < initialEntries.length; i++) {
+        const entry = initialEntries[i]
+        setAnalysisProgress(`o3 is analysing gap ${i + 1} of ${initialEntries.length}: "${entry.gap.title}"…`)
+
+        setGapEntries(prev => prev.map((e, idx) => idx === i ? { ...e, state: 'analysing' } : e))
+
+        try {
+          const pRes = await fetch(`/api/compliance-hub/gaps/${entry.gap.id}/propose-all`, { method: 'POST' })
+          const pJson = await pRes.json() as LinkedGapProposal & { error?: string }
+          if (!pRes.ok || pJson.error) throw new Error(pJson.error ?? 'Proposal failed')
+          setGapEntries(prev => prev.map((e, idx) => idx === i ? { ...e, state: 'ready', proposal: pJson } : e))
+        } catch (err) {
+          setGapEntries(prev => prev.map((e, idx) => idx === i ? { ...e, state: 'ready', error: String(err) } : e))
+        }
+      }
+    } catch (err) {
+      setScanError(String(err))
+    } finally {
+      setAnalysisPhase('done')
+      setAnalysisProgress('')
+    }
+  }
+
+  function setEntryApprover(idx: number, v: string) {
+    setGapEntries(prev => prev.map((e, i) => i === idx ? { ...e, approver: v } : e))
+  }
+
+  async function approveEntry(idx: number) {
+    const entry = gapEntries[idx]
+    setGapEntries(prev => prev.map((e, i) => i === idx ? { ...e, busy: true, error: null } : e))
+    try {
+      const res = await fetch(`/api/compliance-hub/gaps/${entry.gap.id}/approve-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approvedBy: entry.approver.trim(), action: 'approve' }),
+      })
+      const json = await res.json() as { error?: string }
+      if (!res.ok || json.error) throw new Error(json.error ?? 'Approval failed')
+      setGapEntries(prev => prev.map((e, i) => i === idx ? { ...e, state: 'approved', busy: false } : e))
+    } catch (err) {
+      setGapEntries(prev => prev.map((e, i) => i === idx ? { ...e, error: String(err), busy: false } : e))
+    }
+  }
+
+  async function rejectEntry(idx: number) {
+    const entry = gapEntries[idx]
+    setGapEntries(prev => prev.map((e, i) => i === idx ? { ...e, busy: true, error: null } : e))
+    try {
+      const res = await fetch(`/api/compliance-hub/gaps/${entry.gap.id}/approve-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject' }),
+      })
+      const json = await res.json() as { error?: string }
+      if (!res.ok || json.error) throw new Error(json.error ?? 'Reject failed')
+      setGapEntries(prev => prev.map((e, i) => i === idx ? { ...e, state: 'rejected', busy: false } : e))
+    } catch (err) {
+      setGapEntries(prev => prev.map((e, i) => i === idx ? { ...e, error: String(err), busy: false } : e))
     }
   }
 
@@ -523,7 +623,7 @@ export default function RegulatoryIntelligencePage() {
           </div>
           <h1 className="text-2xl font-bold" style={{ color: MR_MIDNIGHT }}>Regulatory Intelligence Scanner</h1>
           <p className="text-sm mt-1" style={{ color: '#4A5568' }}>
-            Live EUR-Lex API + o3 · Checks all controls &amp; policies · Before/after review before you approve
+            Live EUR-Lex API + o3 · Two phases: scan finds gaps, impact analysis shows exactly what to change and why
           </p>
         </div>
         <button
@@ -531,22 +631,23 @@ export default function RegulatoryIntelligencePage() {
           className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm"
           style={{ background: scanning ? '#9CA3AF' : MR_VIOLET, color: 'white', border: 'none', cursor: scanning ? 'not-allowed' : 'pointer' }}
         >
-          {scanning ? <><Spinner size={16} />Scanning…</> : <>⚡ Run Intelligence Scan</>}
+          {scanning ? <><Spinner size={16} />Scanning…</> : <>⚡ Run Regulatory Scan</>}
         </button>
       </div>
 
       {/* ── Explainer ── */}
-      <div className="rounded-xl p-4 text-sm" style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', color: '#4C1D95' }}>
-        <strong>How it works:</strong> Each scan queries EUR-Lex CELLAR for live implementing acts, RTS/ITS, and guidance.
-        o3 analyses them against all existing requirements, controls, and policies — generating real gaps.
-        For each gap: generate a proposal to see the exact <em>before/after</em> for the control and every affected
-        policy document before you approve.
+      <div className="rounded-xl p-4" style={{ background: '#F5F3FF', border: '1px solid #DDD6FE' }}>
+        <p className="text-sm" style={{ color: '#4C1D95' }}>
+          <strong>Two-phase process:</strong>{' '}
+          <span className="font-semibold" style={{ color: MR_AMBER }}>Phase 1 — Regulatory Scan</span> queries EUR-Lex CELLAR + o3 to identify new regulatory developments and create compliance gaps.{' '}
+          <span className="font-semibold" style={{ color: MR_MIDNIGHT }}>Phase 2 — Impact Analysis</span> runs a separate o3 analysis per gap, producing an explicit causal chain: the regulation trigger → the control change required → which policy section changes and why. Review and approve each linked proposal before it is applied.
+        </p>
       </div>
 
       {/* ── Scan progress ── */}
       {scanning && (
         <div className="rounded-xl p-5" style={{ background: 'white', border: '1px solid #D0D7E3' }}>
-          <p className="text-sm font-semibold mb-4" style={{ color: MR_MIDNIGHT }}>Running — o3 is analysing all regulations…</p>
+          <p className="text-sm font-semibold mb-4" style={{ color: MR_MIDNIGHT }}>Phase 1 running — o3 is scanning all regulations…</p>
           <div className="space-y-2.5">
             {SCAN_STEPS.map((step, i) => (
               <div key={step} className="flex items-center gap-3">
@@ -565,17 +666,17 @@ export default function RegulatoryIntelligencePage() {
         </div>
       )}
 
-      {/* ── Error ── */}
+      {/* ── Scan error ── */}
       {scanError && (
         <div className="rounded-xl p-4 text-sm" style={{ background: '#FEE2E2', color: MR_RED, border: '1px solid #FECACA' }}>
-          <strong>Scan failed:</strong> {scanError}
+          <strong>Error:</strong> {scanError}
         </div>
       )}
 
-      {/* ── Scan results ── */}
+      {/* ── Phase 1 results ── */}
       {result && (
         <div className="space-y-6">
-          {/* Connection status */}
+          {/* EUR-Lex connection status */}
           <div className="rounded-xl p-4 flex items-center gap-3 text-sm"
             style={{ background: result.eurLexConnected ? '#F0FAF6' : '#FFFBEB', border: `1px solid ${result.eurLexConnected ? '#BBF7D0' : '#FDE68A'}` }}>
             <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: result.eurLexConnected ? MR_GREEN : MR_AMBER }} />
@@ -586,12 +687,15 @@ export default function RegulatoryIntelligencePage() {
             </span>
           </div>
 
-          {/* KPI row */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <KpiTile label="Regulations Scanned" value={result.sourcesScanned} />
-            <KpiTile label="Updates Found" value={result.updatesFound.length} color={result.updatesFound.length > 0 ? MR_MIDNIGHT : '#6B7280'} sub="Acts, RTS/ITS, guidance" />
-            <KpiTile label="New Gaps" value={result.newGapsCreated} color={result.newGapsCreated > 0 ? MR_RED : MR_GREEN} sub="Stored — review below" />
-            <KpiTile label="Controls at Risk" value={result.controlsImpacted.length} color={result.controlsImpacted.length > 0 ? MR_AMBER : '#6B7280'} sub="Published controls" />
+          {/* Phase 1 KPI row */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: '#6B7280' }}>Phase 1 Results — Regulatory Scan</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <KpiTile label="Regulations Scanned" value={result.sourcesScanned} />
+              <KpiTile label="Updates Found" value={result.updatesFound.length} color={result.updatesFound.length > 0 ? MR_MIDNIGHT : '#6B7280'} sub="Acts, RTS/ITS, guidance" />
+              <KpiTile label="New Gaps" value={result.newGapsCreated} color={result.newGapsCreated > 0 ? MR_RED : MR_GREEN} sub="Ready for impact analysis" />
+              <KpiTile label="Controls at Risk" value={result.controlsImpacted.length} color={result.controlsImpacted.length > 0 ? MR_AMBER : '#6B7280'} sub="Published controls" />
+            </div>
           </div>
 
           {/* Tab bar */}
@@ -676,29 +780,81 @@ export default function RegulatoryIntelligencePage() {
         </div>
       )}
 
-      {/* ── Before / After Review Section ── */}
-      {(result && (scanGaps.length > 0 || loadingGaps)) && (
-        <section className="space-y-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-base font-semibold" style={{ color: MR_MIDNIGHT }}>Review &amp; Approve Changes</h2>
-              <p className="text-xs mt-0.5" style={{ color: '#4A5568' }}>
-                Click <strong>Generate Proposal</strong> on any gap to see the exact before/after for the control and every
-                affected policy document. Review, then approve or reject.
-              </p>
+      {/* ── Phase 2: Impact Analysis ── */}
+      {result && result.newGapsCreated > 0 && (
+        <section>
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #D0D7E3' }}>
+            {/* Phase 2 header */}
+            <div className="px-5 py-4 flex items-start justify-between gap-4 flex-wrap" style={{ background: analysisPhase === 'done' ? '#F0FAF6' : '#F9FAFB', borderBottom: analysisPhase !== 'none' ? '1px solid #D0D7E3' : 'none' }}>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold" style={{ background: MR_MIDNIGHT, color: 'white' }}>Phase 2</span>
+                  <h2 className="text-base font-semibold" style={{ color: MR_MIDNIGHT }}>Impact Analysis</h2>
+                  {analysisPhase === 'done' && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold" style={{ background: '#D1FAE5', color: MR_GREEN }}>Complete</span>
+                  )}
+                </div>
+                <p className="text-xs" style={{ color: '#4A5568' }}>
+                  {analysisPhase === 'none'
+                    ? `${result.newGapsCreated} gap${result.newGapsCreated !== 1 ? 's' : ''} found. Run impact analysis to see the exact regulation trigger, control change, and policy updates — all explicitly linked — before you approve.`
+                    : analysisPhase === 'loading'
+                      ? 'Loading gaps…'
+                      : analysisPhase === 'running'
+                        ? analysisProgress
+                        : `Analysis complete — ${gapEntries.length} gap${gapEntries.length !== 1 ? 's' : ''} ready for review.`
+                  }
+                </p>
+              </div>
+              {analysisPhase === 'none' && (
+                <button
+                  onClick={runImpactAnalysis}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm flex-shrink-0"
+                  style={{ background: MR_MIDNIGHT, color: 'white', border: 'none', cursor: 'pointer' }}
+                >
+                  Run Impact Analysis →
+                </button>
+              )}
+              {(analysisPhase === 'loading' || analysisPhase === 'running') && (
+                <span className="flex items-center gap-2 text-sm flex-shrink-0" style={{ color: MR_VIOLET }}>
+                  <Spinner size={16} /> Analysing with o3…
+                </span>
+              )}
             </div>
-            {!loadingGaps && scanGaps.length > 0 && (
-              <span className="text-xs px-2 py-1 rounded flex-shrink-0" style={{ background: '#F4F6F9', border: '1px solid #D0D7E3', color: '#4A5568' }}>
-                {scanGaps.length} gap{scanGaps.length !== 1 ? 's' : ''} from this scan
-              </span>
+
+            {/* Progress list while running */}
+            {analysisPhase === 'running' && gapEntries.length > 0 && (
+              <div className="px-5 py-4 space-y-2" style={{ background: 'white' }}>
+                {gapEntries.map((e, i) => (
+                  <div key={e.gap.id} className="flex items-center gap-3">
+                    <div className="w-4 h-4 flex-shrink-0">
+                      {e.state === 'ready' || e.state === 'approved' || e.state === 'rejected'
+                        ? <svg viewBox="0 0 20 20" fill={MR_GREEN} className="w-4 h-4"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                        : e.state === 'analysing'
+                          ? <span style={{ color: MR_VIOLET }}><Spinner size={16} /></span>
+                          : <div className="w-4 h-4 rounded-full" style={{ background: '#E5E7EB' }} />
+                      }
+                    </div>
+                    <span className="text-xs" style={{ color: e.state === 'pending' ? '#9CA3AF' : MR_MIDNIGHT, fontWeight: e.state === 'analysing' ? 600 : 400 }}>
+                      Gap {i + 1}: {e.gap.title}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
-          {loadingGaps ? (
-            <div className="flex items-center gap-2 py-4 text-sm" style={{ color: '#6B7280' }}><Spinner size={16} /> Loading gaps…</div>
-          ) : (
-            <div className="space-y-3">
-              {scanGaps.map(gap => <GapReviewCard key={gap.id} gap={gap} />)}
+          {/* Proposal cards */}
+          {(analysisPhase === 'running' || analysisPhase === 'done') && gapEntries.length > 0 && (
+            <div className="space-y-4 mt-4">
+              {gapEntries.map((entry, idx) => (
+                <LinkedProposalCard
+                  key={entry.gap.id}
+                  entry={entry}
+                  onApproverChange={v => setEntryApprover(idx, v)}
+                  onApprove={() => approveEntry(idx)}
+                  onReject={() => rejectEntry(idx)}
+                />
+              ))}
             </div>
           )}
         </section>
@@ -755,7 +911,6 @@ export default function RegulatoryIntelligencePage() {
             </div>
             <div className="flex items-center gap-4 pt-1">
               <Link href="/compliance-hub" className="text-sm font-semibold" style={{ color: MR_MIDNIGHT, textDecoration: 'none' }}>View all gaps in Compliance Hub →</Link>
-              <Link href="/compliance-hub/regulatory-updates" className="text-sm font-semibold" style={{ color: MR_VIOLET, textDecoration: 'none' }}>Review regulatory versions →</Link>
             </div>
           </div>
         </section>

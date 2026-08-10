@@ -376,13 +376,6 @@ function SectionLabel({ label, count }: { label: string; count: number }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-interface BulkResult {
-  generated: number
-  approved: number
-  published: number
-  casesCreated: number
-}
-
 export default function WorkflowPage() {
   const [data, setData] = useState<WorkflowState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -391,10 +384,6 @@ export default function WorkflowPage() {
   const [err, setErr] = useState<Record<string, string>>({})
   const [approverInputs, setApproverInputs] = useState<Record<string, string>>({})
   const [verifyCounts, setVerifyCounts] = useState<Record<string, number>>({})
-  const [bulkApprover, setBulkApprover] = useState('Compliance Officer')
-  const [bulkBusy, setBulkBusy] = useState(false)
-  const [bulkResult, setBulkResult] = useState<BulkResult | null>(null)
-  const [bulkErr, setBulkErr] = useState('')
 
   const refresh = useCallback(async () => {
     try {
@@ -429,36 +418,7 @@ export default function WorkflowPage() {
     setApproverInputs(p => ({ ...p, [changeId]: value }))
   }
 
-  async function bulkApproveAll() {
-    setBulkBusy(true)
-    setBulkErr('')
-    setBulkResult(null)
-    try {
-      const res = await fetch('/api/workflow/bulk-approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approvedBy: bulkApprover.trim() || 'Compliance Officer' }),
-      })
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
-      setBulkResult(json as BulkResult)
-      await refresh()
-    } catch (e) {
-      setBulkErr(String(e))
-    } finally {
-      setBulkBusy(false)
-    }
-  }
-
   // ── Compliance actions ──────────────────────────────────────────────────────
-
-  function generateChange(gapId: string) {
-    act(`gen-${gapId}`, async () => {
-      const res = await fetch(`/api/compliance-hub/gaps/${gapId}/generate-change`, { method: 'POST' })
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
-    })
-  }
 
   function approveChange(changeId: string) {
     const name = approverInputs[changeId]?.trim()
@@ -576,64 +536,6 @@ export default function WorkflowPage() {
           title="Compliance Team"
           badge={`${gapCount} gap${gapCount !== 1 ? 's' : ''} · ${changeCount} pending change${changeCount !== 1 ? 's' : ''}`}
         >
-          {/* ── Bulk approve panel ──────────────────────────────────────── */}
-          <div
-            style={{
-              background: 'white',
-              border: '1px solid #C7D2E8',
-              borderRadius: 10,
-              padding: '10px 12px',
-            }}
-          >
-            <p style={{ fontSize: 10, fontWeight: 700, color: '#003781', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              ⚡ Process All Gaps
-            </p>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input
-                type="text"
-                placeholder="Approver name"
-                value={bulkApprover}
-                onChange={e => setBulkApprover(e.target.value)}
-                style={{
-                  fontSize: 11,
-                  padding: '4px 8px',
-                  borderRadius: 5,
-                  border: '1px solid #D0D7E3',
-                  flex: 1,
-                  minWidth: 0,
-                  outline: 'none',
-                }}
-              />
-              <Btn
-                onClick={bulkApproveAll}
-                busy={bulkBusy}
-                bg="#003781"
-                color="white"
-              >
-                {bulkBusy ? 'Processing…' : 'Approve All →'}
-              </Btn>
-            </div>
-            {bulkErr && (
-              <p style={{ color: '#E4002B', fontSize: 10, marginTop: 5 }}>{bulkErr}</p>
-            )}
-            {bulkResult && (
-              <div
-                style={{
-                  marginTop: 8,
-                  background: '#F0FAF6',
-                  border: '1px solid #A7F3D0',
-                  borderRadius: 6,
-                  padding: '6px 10px',
-                  fontSize: 10,
-                  color: '#065F46',
-                  fontWeight: 600,
-                }}
-              >
-                ✓ Generated {bulkResult.generated} · Approved {bulkResult.approved} · Published {bulkResult.published} · {bulkResult.casesCreated} case{bulkResult.casesCreated !== 1 ? 's' : ''} sent to Product Team
-              </div>
-            )}
-          </div>
-
           {/* Section A: Open Gaps */}
           <SectionLabel label="Open Gaps" count={gapCount} />
 
@@ -642,7 +544,6 @@ export default function WorkflowPage() {
           {complianceTeam.openGaps.map(gap => {
             const gSt = gapStatusStyle(gap.status)
             const sev = severityStyle(gap.severity)
-            const genKey = `gen-${gap.id}`
             return (
               <div key={gap.id} style={CARD}>
                 {/* Top row: severity + source + status */}
@@ -693,18 +594,6 @@ export default function WorkflowPage() {
                     >
                       View change →
                     </Link>
-                  </div>
-                ) : gap.status === 'OPEN' ? (
-                  <div style={{ marginBottom: 6 }}>
-                    <Btn
-                      onClick={() => generateChange(gap.id)}
-                      busy={busy[genKey]}
-                      bg="#7C3AED"
-                      color="white"
-                    >
-                      {busy[genKey] ? 'Generating…' : '✦ AI: Generate Control Change'}
-                    </Btn>
-                    <InlineError msg={err[genKey]} />
                   </div>
                 ) : null}
 

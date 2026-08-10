@@ -114,6 +114,13 @@ export interface AiProvider {
     document: { id: string; title: string; type: string; content: string | null },
     sourceShortCode: string
   ): Promise<DocumentUpdateProposal>
+  proposeLinkedChanges(
+    gap: { title: string; description: string; severity: string; gapType: string; aiAnalysis: string | null },
+    requirement: { articleRef: string; title: string; description: string; obligationType: string },
+    sourceShortCode: string,
+    documents: Array<{ id: string; title: string; type: string; content: string | null }>,
+    existingControl: { id: string; title: string; description: string; steps: string[]; acceptanceCriteria: string[] } | null
+  ): Promise<LinkedProposal>
 }
 
 export interface AuditContext {
@@ -193,6 +200,43 @@ export interface DocumentUpdateProposal {
   proposedContent: string
   changeSummary: string
   addedClauses: string[]
+  provenance: AiProvenance
+}
+
+export interface LinkedProposal {
+  trigger: {
+    articleRef: string
+    clauseText: string
+    changeNature: string
+    complianceDeadline: string | null
+  }
+  control: {
+    isNew: boolean
+    currentState: {
+      title: string
+      description: string
+      steps: string[]
+      acceptanceCriteria: string[]
+    } | null
+    title: string
+    description: string
+    changeType: 'NEW_CONTROL' | 'AMEND_CONTROL' | 'NEW_POLICY' | 'AMEND_POLICY' | 'PROCESS_CHANGE'
+    steps: string[]
+    acceptanceCriteria: string[]
+    estimatedEffort: string
+    triggerRationale: string
+  }
+  documents: Array<{
+    documentId: string
+    documentTitle: string
+    isNew: boolean
+    section: string
+    currentContent: string
+    proposedContent: string
+    changeSummary: string
+    addedClauses: string[]
+    triggerRationale: string
+  }>
   provenance: AiProvenance
 }
 
@@ -281,6 +325,7 @@ class NoAiProvider implements AiProvider {
   async suggestRemediationSteps(): Promise<RemediationSuggestionResult> { return this.fail() }
   async scanRegulatoryIntelligence(): Promise<RegulatoryIntelligenceScan> { return this.fail() }
   async proposeDocumentUpdate(): Promise<DocumentUpdateProposal> { return this.fail() }
+  async proposeLinkedChanges(): Promise<LinkedProposal> { return this.fail() }
 }
 
 // ─── Rate-limit helpers ───────────────────────────────────────────────────────
@@ -715,6 +760,131 @@ Return only the JSON object.`
       })),
       changeSummary: String(parsed.changeSummary ?? ''),
       overallAssessment: String(parsed.overallAssessment ?? ''),
+      provenance: this.provenance(model),
+    }
+  }
+
+  async proposeLinkedChanges(
+    gap: { title: string; description: string; severity: string; gapType: string; aiAnalysis: string | null },
+    requirement: { articleRef: string; title: string; description: string; obligationType: string },
+    sourceShortCode: string,
+    documents: Array<{ id: string; title: string; type: string; content: string | null }>,
+    existingControl: { id: string; title: string; description: string; steps: string[]; acceptanceCriteria: string[] } | null
+  ): Promise<LinkedProposal> {
+    const model = MODEL_REASONING
+
+    const controlContext = existingControl
+      ? `EXISTING CONTROL (must be amended, not replaced):
+Title: ${existingControl.title}
+Description: ${existingControl.description}
+Current steps: ${JSON.stringify(existingControl.steps)}
+Current acceptance criteria: ${JSON.stringify(existingControl.acceptanceCriteria)}
+
+Instruction: Propose an amendment to this existing control. Preserve what is already compliant. Only add or change what the regulation trigger requires. The proposed steps and criteria should show the FULL updated control (existing + new), not just the delta.`
+      : `EXISTING CONTROL: None — this requires a new control to be created.`
+
+    const docExcerpts = documents.map(d => ({
+      id: d.id,
+      title: d.title,
+      type: d.type,
+      hasContent: !!d.content,
+      currentContent: d.content ? d.content.slice(0, 2500) : null,
+    }))
+
+    const system = `You are a senior GRC analyst at a European financial institution. Given a compliance gap, produce a complete causally-linked remediation proposal with three explicit parts:
+
+1. TRIGGER — the exact regulation article and clause text that created this gap.
+2. CONTROL — ${existingControl ? 'an amendment to the existing control, preserving what is already compliant and only adding/changing what the trigger requires' : 'a new control designed to close this gap'}.
+3. DOCUMENTS — for each affected document: if it has existing content, amend only the section that must change; if it is a new document, produce the full initial content.
+
+Every proposed step and document clause must trace directly to the regulation trigger. The triggerRationale fields must be concrete, not generic.`
+
+    const user = `Regulation: ${sourceShortCode}
+Requirement: ${requirement.articleRef} — ${requirement.title}
+Requirement description: ${requirement.description}
+Obligation type: ${requirement.obligationType}
+
+Compliance gap:
+- title: ${gap.title}
+- description: ${gap.description}
+- severity: ${gap.severity}
+- type: ${gap.gapType}
+- AI analysis: ${gap.aiAnalysis ?? 'N/A'}
+
+${controlContext}
+
+Affected policy documents (use these exact IDs):
+${JSON.stringify(docExcerpts, null, 2)}
+
+Return a JSON object with exactly these keys:
+- trigger: object with:
+  - articleRef: string (e.g. "DORA Art. 9(4)(b)")
+  - clauseText: string (the actual or faithful paraphrase of the regulation text, 1-2 sentences)
+  - changeNature: string (e.g. "New mandatory requirement", "Strengthened obligation", "Clarification of existing duty")
+  - complianceDeadline: string (YYYY-MM-DD) or null
+- control: object with:
+  - changeType: one of "NEW_CONTROL"|"AMEND_CONTROL"|"NEW_POLICY"|"AMEND_POLICY"|"PROCESS_CHANGE"
+  - title: string (the updated or new control title)
+  - description: string (full updated description)
+  - steps: array of strings (the FULL set of steps after the amendment — not just the new ones)
+  - acceptanceCriteria: array of strings (the FULL set of criteria after the amendment)
+  - estimatedEffort: string
+  - triggerRationale: string (1-2 sentences: exactly how this control addresses the regulation trigger)
+- documents: array — one entry per affected document, each with:
+  - documentId: string (from the provided list)
+  - documentTitle: string
+  - isNewDocument: boolean (true only if hasContent was false for this document)
+  - section: string (the specific section being updated, e.g. "Section 4.3 — Risk Assessment Frequency"; or "Full document" if new)
+  - proposedContent: string (the complete updated document content preserving all valid existing content; or full new content if new)
+  - changeSummary: string (what was added/changed and why)
+  - addedClauses: array of strings (new or materially changed clauses/sentences)
+  - triggerRationale: string (1-2 sentences: why this document section must change to address the trigger)
+
+Return only the JSON object.`
+
+    const parsed = await this.chat(model, system, user)
+
+    const rawTrigger = (parsed.trigger ?? {}) as Record<string, unknown>
+    const rawControl = (parsed.control ?? {}) as Record<string, unknown>
+    const rawDocs = Array.isArray(parsed.documents) ? parsed.documents as Array<Record<string, unknown>> : []
+
+    const VALID_CHANGE_TYPES = ['NEW_CONTROL', 'AMEND_CONTROL', 'NEW_POLICY', 'AMEND_POLICY', 'PROCESS_CHANGE'] as const
+    type ChangeType = typeof VALID_CHANGE_TYPES[number]
+
+    return {
+      trigger: {
+        articleRef: String(rawTrigger.articleRef ?? requirement.articleRef),
+        clauseText: String(rawTrigger.clauseText ?? requirement.description),
+        changeNature: String(rawTrigger.changeNature ?? ''),
+        complianceDeadline: rawTrigger.complianceDeadline ? String(rawTrigger.complianceDeadline) : null,
+      },
+      control: {
+        isNew: !existingControl,
+        currentState: existingControl
+          ? { title: existingControl.title, description: existingControl.description, steps: existingControl.steps, acceptanceCriteria: existingControl.acceptanceCriteria }
+          : null,
+        changeType: (VALID_CHANGE_TYPES.includes(String(rawControl.changeType) as ChangeType) ? String(rawControl.changeType) : existingControl ? 'AMEND_CONTROL' : 'NEW_CONTROL') as ChangeType,
+        title: String(rawControl.title ?? ''),
+        description: String(rawControl.description ?? ''),
+        steps: Array.isArray(rawControl.steps) ? rawControl.steps.map(String) : [],
+        acceptanceCriteria: Array.isArray(rawControl.acceptanceCriteria) ? rawControl.acceptanceCriteria.map(String) : [],
+        estimatedEffort: String(rawControl.estimatedEffort ?? ''),
+        triggerRationale: String(rawControl.triggerRationale ?? ''),
+      },
+      documents: rawDocs.map(d => {
+        const src = documents.find(x => x.id === String(d.documentId))
+        return {
+          documentId: String(d.documentId ?? ''),
+          documentTitle: String(d.documentTitle ?? ''),
+          isNew: Boolean(d.isNewDocument) || !src?.content,
+          section: String(d.section ?? ''),
+          currentContent: src?.content ?? '',
+          proposedContent: String(d.proposedContent ?? ''),
+          changeSummary: String(d.changeSummary ?? ''),
+          addedClauses: Array.isArray(d.addedClauses) ? d.addedClauses.map(String) : [],
+          triggerRationale: String(d.triggerRationale ?? ''),
+        }
+      }),
       provenance: this.provenance(model),
     }
   }

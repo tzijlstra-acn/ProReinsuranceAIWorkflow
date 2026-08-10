@@ -1,296 +1,442 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 
-interface Product {
-  id: string
-  name: string
-  type: string
-  criticality: string
-  hostingModel: string | null
-  legalEntity: string | null
-  owner: string | null
-  description: string | null
-  status: string
-  applicationId: string | null
-  createdAt: string | null
+type Stage = 'ACTION_REQUIRED' | 'DOC_GENERATED' | 'GAPS_FOUND' | 'REMEDIATION' | 'FULFILLED'
+
+interface ProductEntry {
+  product: { id: string; name: string; criticality: string; type: string; owner: string | null }
+  stage: Stage
+  productGaps: Array<{ id: string; severity: string; status: string; title: string }>
+  remediationCases: Array<{ id: string; status: string; title: string }>
+  workProducts: Array<{ id: string; title: string; status: string }>
 }
 
-interface ComplianceItem {
-  applicability: {
+interface InboxItem {
+  controlChange: {
     id: string
-    productId: string
+    title: string
+    description: string
+    changeType: string
+    publishedAt: string | null
     requirementId: string
-    sourceId: string
-    applicable: boolean
-    applicabilityReason: string | null
-    assessedAt: string
-    assessedBy: string | null
+    gapId: string
   }
   requirement: {
     id: string
-    sourceId: string
     articleRef: string
     title: string
     obligationType: string
+    obligationLevel: string
+    sourceId: string
   } | null
-  source: {
-    id: string
-    shortCode: string
-    name: string
-  } | null
-  applicable: boolean
-  currentStatus: string
-  openGaps: { id: string; status: string }[]
-  workProducts: { id: string }[]
+  source: { id: string; shortCode: string; name: string } | null
+  affectedProducts: ProductEntry[]
 }
 
-const REG_LABELS: Record<string, string> = {
-  DORA: 'DORA',
-  NIS2: 'NIS2',
-  GDPR: 'GDPR',
-  EU_AI_ACT: 'EU AI Act',
+const STAGE_CONFIG: Record<Stage, { label: string; color: string; bg: string; border: string }> = {
+  ACTION_REQUIRED: { label: 'Action Required', color: '#E4002B', bg: 'rgba(228,0,43,0.08)', border: 'rgba(228,0,43,0.30)' },
+  DOC_GENERATED:   { label: 'Docs Generated',  color: '#B45309', bg: 'rgba(180,83,9,0.08)',  border: 'rgba(180,83,9,0.30)' },
+  GAPS_FOUND:      { label: 'Gaps Found',       color: '#D97706', bg: 'rgba(217,119,6,0.08)', border: 'rgba(217,119,6,0.30)' },
+  REMEDIATION:     { label: 'In Remediation',   color: '#7C3AED', bg: 'rgba(124,58,237,0.08)', border: 'rgba(124,58,237,0.30)' },
+  FULFILLED:       { label: 'Fulfilled',         color: '#0A7C59', bg: 'rgba(10,124,89,0.08)', border: 'rgba(10,124,89,0.30)' },
 }
 
-function statusStyle(status: string): { color: string; bg: string; border: string; label: string } {
-  switch (status) {
-    case 'COMPLIANT':
-      return { color: '#0A7C59', bg: '#0A7C59/10', border: '#0A7C59/30', label: 'Compliant' }
-    case 'NON_COMPLIANT':
-      return { color: '#E4002B', bg: '#E4002B/10', border: '#E4002B/30', label: 'Non-Compliant' }
-    case 'NOT_APPLICABLE':
-      return { color: '#4A5568', bg: '#4A5568/10', border: '#4A5568/30', label: 'Not Applicable' }
-    case 'IN_REMEDIATION':
-      return { color: '#B45309', bg: '#B45309/10', border: '#B45309/30', label: 'In Remediation' }
-    default:
-      return { color: '#4A5568', bg: '#4A5568/10', border: '#4A5568/30', label: status.replace(/_/g, ' ') }
-  }
+const CHANGE_TYPE_LABEL: Record<string, string> = {
+  NEW_CONTROL: 'New Control',
+  AMEND_CONTROL: 'Amend Control',
+  NEW_POLICY: 'New Policy',
+  AMEND_POLICY: 'Amend Policy',
+  PROCESS_CHANGE: 'Process Change',
 }
 
-function criticalityStyle(c: string) {
-  switch (c.toUpperCase()) {
-    case 'CRITICAL': return { color: '#E4002B', bg: 'rgba(228,0,43,0.08)', border: 'rgba(228,0,43,0.25)' }
-    case 'HIGH': return { color: '#B45309', bg: 'rgba(180,83,9,0.08)', border: 'rgba(180,83,9,0.25)' }
-    case 'MEDIUM': return { color: '#003781', bg: 'rgba(0,55,129,0.08)', border: 'rgba(0,55,129,0.25)' }
-    default: return { color: '#4A5568', bg: 'rgba(74,85,104,0.08)', border: 'rgba(74,85,104,0.25)' }
-  }
+const CRITICALITY_CONFIG: Record<string, { color: string; bg: string; border: string }> = {
+  CRITICAL: { color: '#E4002B', bg: 'rgba(228,0,43,0.08)', border: 'rgba(228,0,43,0.25)' },
+  HIGH:     { color: '#B45309', bg: 'rgba(180,83,9,0.08)', border: 'rgba(180,83,9,0.25)' },
+  MEDIUM:   { color: '#003781', bg: 'rgba(0,55,129,0.08)', border: 'rgba(0,55,129,0.25)' },
+  LOW:      { color: '#4A5568', bg: 'rgba(74,85,104,0.08)', border: 'rgba(74,85,104,0.25)' },
 }
 
-function deriveOverallStatus(items: ComplianceItem[]): string {
-  if (items.some(i => i.applicable && i.currentStatus === 'NON_COMPLIANT')) return 'NON_COMPLIANT'
-  if (items.some(i => i.applicable && i.currentStatus === 'IN_REMEDIATION')) return 'IN_REMEDIATION'
-  if (items.some(i => i.applicable && i.currentStatus === 'COMPLIANT')) return 'COMPLIANT'
-  return 'NOT_ASSESSED'
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
+
+type BusyKey = `maya-${string}-${string}` | `mitra-${string}-${string}`
 
 export default function ProductHubPage() {
-  const [products, setProducts] = useState<Product[]>([])
-  const [complianceMap, setComplianceMap] = useState<Record<string, ComplianceItem[]>>({})
+  const [inbox, setInbox] = useState<InboxItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<Set<BusyKey>>(new Set())
+  const [results, setResults] = useState<Record<string, string>>({})
 
-  useEffect(() => {
-    fetch('/api/product-hub/products')
+  const load = useCallback(() => {
+    setLoading(true)
+    fetch('/api/product-hub/inbox')
       .then(r => r.json())
-      .then(async (prods: Product[]) => {
-        setProducts(prods)
-        const map: Record<string, ComplianceItem[]> = {}
-        await Promise.all(
-          prods.map(async p => {
-            const res = await fetch(`/api/product-hub/products/${p.id}/compliance`)
-            map[p.id] = await res.json()
-          })
-        )
-        setComplianceMap(map)
+      .then(data => {
+        setInbox(Array.isArray(data) ? data : [])
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch(e => {
+        setError(String(e))
+        setLoading(false)
+      })
   }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function runMaya(productId: string, controlChangeId: string) {
+    const key: BusyKey = `maya-${productId}-${controlChangeId}`
+    setBusy(prev => new Set(prev).add(key))
+    try {
+      const res = await fetch(`/api/product-hub/products/${productId}/maya`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ controlChangeId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      const count = (data.workProducts as unknown[]).length
+      setResults(prev => ({ ...prev, [key]: `MAYA complete — ${count} work product${count !== 1 ? 's' : ''} generated` }))
+      load()
+    } catch (e) {
+      setResults(prev => ({ ...prev, [key]: `Error: ${String(e)}` }))
+    } finally {
+      setBusy(prev => { const s = new Set(prev); s.delete(key); return s })
+    }
+  }
+
+  async function runMitra(productId: string, requirementId: string, controlChangeId: string) {
+    const key: BusyKey = `mitra-${productId}-${controlChangeId}`
+    setBusy(prev => new Set(prev).add(key))
+    try {
+      const res = await fetch(`/api/product-hub/products/${productId}/mitra`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requirementId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      const count = (data.gaps as unknown[]).length
+      setResults(prev => ({ ...prev, [key]: `MITRA complete — ${count} gap${count !== 1 ? 's' : ''} identified (${data.coverageStatus})` }))
+      load()
+    } catch (e) {
+      setResults(prev => ({ ...prev, [key]: `Error: ${String(e)}` }))
+    } finally {
+      setBusy(prev => { const s = new Set(prev); s.delete(key); return s })
+    }
+  }
+
+  const actionRequired = inbox.reduce((n, item) =>
+    n + item.affectedProducts.filter(p => p.stage === 'ACTION_REQUIRED').length, 0)
+  const totalProducts = inbox.reduce((n, item) => n + item.affectedProducts.length, 0)
 
   if (loading) {
     return (
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-[#003781]">Product Hub</h1>
-          <p className="text-[#4A5568] text-sm mt-1">Loading product compliance data…</p>
+          <p className="text-[#4A5568] text-sm mt-1">Loading action inbox…</p>
         </div>
         <div className="animate-pulse space-y-4">
-          <div className="h-48 bg-[#F4F6F9] rounded-lg border border-[#D0D7E3]" />
+          <div className="h-40 bg-[#F4F6F9] rounded-xl border border-[#D0D7E3]" />
+          <div className="h-40 bg-[#F4F6F9] rounded-xl border border-[#D0D7E3]" />
         </div>
       </div>
     )
   }
 
-  return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div>
+  if (error) {
+    return (
+      <div className="space-y-4">
         <h1 className="text-2xl font-bold text-[#003781]">Product Hub</h1>
-        <p className="text-[#4A5568] text-sm mt-1">
-          Approved control changes &rarr; product gap analysis &rarr; remediation tracking
-        </p>
+        <p className="text-[#E4002B] text-sm">Failed to load inbox: {error}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[#003781]">Product Hub</h1>
+          <p className="text-[#4A5568] text-sm mt-1">
+            Approved control changes → product impact → MAYA document generation → MITRA assessment → DDCR
+          </p>
+        </div>
+        <button
+          onClick={load}
+          className="px-3 py-1.5 text-sm rounded-lg border border-[#D0D7E3] text-[#4A5568] hover:border-[#003781] hover:text-[#003781] transition-colors"
+        >
+          Refresh
+        </button>
       </div>
 
-      {/* Product cards */}
-      <div className="space-y-6">
-        {products.map(product => {
-          const items: ComplianceItem[] = complianceMap[product.id] ?? []
-          const overallStatus = deriveOverallStatus(items)
-          const overall = statusStyle(overallStatus)
-          const totalOpenGaps = items.reduce((s, i) => s + i.openGaps.length, 0)
-          const crit = criticalityStyle(product.criticality)
+      {/* Summary KPIs */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-white border border-[#D0D7E3] rounded-xl p-4" style={{ boxShadow: '0 1px 3px rgba(0,56,129,0.06)' }}>
+          <p className="text-xs font-medium text-[#4A5568] uppercase tracking-wide">Control Changes</p>
+          <p className="text-3xl font-bold text-[#003781] mt-1">{inbox.length}</p>
+          <p className="text-xs text-[#4A5568] mt-0.5">published, requiring product action</p>
+        </div>
+        <div className="bg-white border border-[#D0D7E3] rounded-xl p-4" style={{ boxShadow: '0 1px 3px rgba(0,56,129,0.06)' }}>
+          <p className="text-xs font-medium text-[#4A5568] uppercase tracking-wide">Products in Scope</p>
+          <p className="text-3xl font-bold text-[#003781] mt-1">{totalProducts}</p>
+          <p className="text-xs text-[#4A5568] mt-0.5">across all active changes</p>
+        </div>
+        <div
+          className="rounded-xl p-4 border"
+          style={{
+            background: actionRequired > 0 ? 'rgba(228,0,43,0.05)' : 'rgba(10,124,89,0.05)',
+            borderColor: actionRequired > 0 ? 'rgba(228,0,43,0.25)' : 'rgba(10,124,89,0.25)',
+            boxShadow: '0 1px 3px rgba(0,56,129,0.06)',
+          }}
+        >
+          <p className="text-xs font-medium uppercase tracking-wide" style={{ color: actionRequired > 0 ? '#E4002B' : '#0A7C59' }}>
+            Action Required
+          </p>
+          <p className="text-3xl font-bold mt-1" style={{ color: actionRequired > 0 ? '#E4002B' : '#0A7C59' }}>
+            {actionRequired}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: actionRequired > 0 ? '#E4002B' : '#0A7C59' }}>
+            product{actionRequired !== 1 ? 's' : ''} awaiting first action
+          </p>
+        </div>
+      </div>
 
-          // Build per-regulation map: shortCode -> worst status
-          const regStatus: Record<string, string> = {}
-          for (const item of items) {
-            const code = item.source?.shortCode ?? 'UNKNOWN'
-            if (!regStatus[code]) {
-              regStatus[code] = item.currentStatus
-            } else {
-              // NON_COMPLIANT wins over everything
-              if (item.currentStatus === 'NON_COMPLIANT') regStatus[code] = 'NON_COMPLIANT'
-              else if (item.currentStatus === 'IN_REMEDIATION' && regStatus[code] !== 'NON_COMPLIANT') regStatus[code] = 'IN_REMEDIATION'
-            }
-          }
+      {/* Inbox */}
+      {inbox.length === 0 ? (
+        <div
+          className="bg-white border border-[#D0D7E3] rounded-xl px-8 py-16 text-center"
+          style={{ boxShadow: '0 1px 3px rgba(0,56,129,0.06)' }}
+        >
+          <p className="text-lg font-semibold text-[#003781]">No published control changes</p>
+          <p className="text-sm text-[#4A5568] mt-2">
+            When control changes are approved and published in the Compliance Hub, they will appear here for product-level action.
+          </p>
+          <Link
+            href="/compliance-hub"
+            className="inline-block mt-4 px-4 py-2 text-sm font-medium text-white rounded-lg hover:opacity-90 transition-opacity"
+            style={{ background: '#003781' }}
+          >
+            Go to Compliance Hub →
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {inbox.map(item => {
+            const { controlChange: cc, requirement: req, source, affectedProducts } = item
+            const ctLabel = CHANGE_TYPE_LABEL[cc.changeType] ?? cc.changeType.replace(/_/g, ' ')
 
-          const regOrder = ['DORA', 'NIS2', 'GDPR', 'EU_AI_ACT']
-
-          return (
-            <div
-              key={product.id}
-              className="bg-white border border-[#D0D7E3] rounded-xl overflow-hidden"
-              style={{ boxShadow: '0 1px 3px rgba(0,56,129,0.08)' }}
-            >
-              {/* Overall status bar */}
+            return (
               <div
-                className="px-6 py-3 flex items-center justify-between"
-                style={{ background: overall.color, color: '#fff' }}
+                key={cc.id}
+                className="bg-white border border-[#D0D7E3] rounded-xl overflow-hidden"
+                style={{ boxShadow: '0 1px 4px rgba(0,56,129,0.08)' }}
               >
-                <span className="text-sm font-semibold tracking-wide">
-                  OVERALL COMPLIANCE STATUS: {overall.label.toUpperCase()}
-                </span>
-                {overallStatus === 'NON_COMPLIANT' && (
-                  <span className="text-xs font-medium opacity-80">
-                    Action required — {totalOpenGaps} open gap{totalOpenGaps !== 1 ? 's' : ''}
-                  </span>
+                {/* Control change header */}
+                <div className="px-6 py-4 border-b border-[#D0D7E3] bg-[#F4F6F9]">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        {source && (
+                          <span
+                            className="px-2 py-0.5 text-xs font-bold rounded border"
+                            style={{ color: '#003781', background: 'rgba(0,55,129,0.10)', borderColor: 'rgba(0,55,129,0.25)' }}
+                          >
+                            {source.shortCode}
+                          </span>
+                        )}
+                        <span
+                          className="px-2 py-0.5 text-xs font-medium rounded border text-[#4A5568] border-[#D0D7E3] bg-white"
+                        >
+                          {ctLabel}
+                        </span>
+                        {req && (
+                          <span className="text-xs text-[#4A5568] font-mono">{req.articleRef}</span>
+                        )}
+                        <span className="text-xs text-[#4A5568]">
+                          Published {fmtDate(cc.publishedAt)}
+                        </span>
+                        <span className="text-xs font-mono text-[#4A5568]">{cc.id}</span>
+                      </div>
+                      <h2 className="text-base font-bold text-[#003781]">{cc.title}</h2>
+                      {req && (
+                        <p className="text-sm text-[#4A5568] mt-0.5">{req.title}</p>
+                      )}
+                      <p className="text-sm text-[#4A5568] mt-1 line-clamp-2">{cc.description}</p>
+                    </div>
+                    <div className="flex-shrink-0 text-right">
+                      <span
+                        className="text-xs font-medium"
+                        style={{ color: '#0A7C59' }}
+                      >
+                        {affectedProducts.length} product{affectedProducts.length !== 1 ? 's' : ''} in scope
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Affected products table */}
+                {affectedProducts.length === 0 ? (
+                  <div className="px-6 py-6 text-sm text-[#4A5568] text-center">
+                    No products currently mapped to this requirement.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-[#D0D7E3]">
+                    {affectedProducts.map(entry => {
+                      const { product, stage } = entry
+                      const sc = STAGE_CONFIG[stage]
+                      const crit = CRITICALITY_CONFIG[product.criticality] ?? CRITICALITY_CONFIG.LOW
+                      const mayaKey: BusyKey = `maya-${product.id}-${cc.id}`
+                      const mitraKey: BusyKey = `mitra-${product.id}-${cc.id}`
+                      const mayaBusy = busy.has(mayaKey)
+                      const mitraBusy = busy.has(mitraKey)
+                      const mayaResult = results[mayaKey]
+                      const mitraResult = results[mitraKey]
+                      const isFulfilled = stage === 'FULFILLED'
+
+                      return (
+                        <div key={product.id} className="px-6 py-4">
+                          <div className="flex items-center gap-4">
+                            {/* Product info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Link
+                                  href={`/product-hub/products/${product.id}`}
+                                  className="text-sm font-semibold text-[#003781] hover:underline"
+                                >
+                                  {product.name}
+                                </Link>
+                                <span
+                                  className="px-1.5 py-0.5 text-xs font-medium rounded border"
+                                  style={{ color: crit.color, background: crit.bg, borderColor: crit.border }}
+                                >
+                                  {product.criticality}
+                                </span>
+                                <span className="text-xs text-[#4A5568] font-mono">{product.id}</span>
+                              </div>
+                              {product.owner && (
+                                <p className="text-xs text-[#4A5568] mt-0.5">Owner: {product.owner}</p>
+                              )}
+
+                              {/* Progress line */}
+                              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                                {(
+                                  ['ACTION_REQUIRED', 'DOC_GENERATED', 'GAPS_FOUND', 'REMEDIATION', 'FULFILLED'] as Stage[]
+                                ).map((s, idx, arr) => {
+                                  const stageIdx = arr.indexOf(stage)
+                                  const thisIdx = idx
+                                  const done = thisIdx < stageIdx
+                                  const current = thisIdx === stageIdx
+                                  return (
+                                    <div key={s} className="flex items-center gap-1">
+                                      <span
+                                        className="text-xs px-1.5 py-0.5 rounded"
+                                        style={{
+                                          background: current ? STAGE_CONFIG[s].bg : done ? 'rgba(10,124,89,0.08)' : 'rgba(74,85,104,0.06)',
+                                          color: current ? STAGE_CONFIG[s].color : done ? '#0A7C59' : '#9AA3AF',
+                                          fontWeight: current ? 600 : 400,
+                                        }}
+                                      >
+                                        {STAGE_CONFIG[s].label}
+                                      </span>
+                                      {idx < arr.length - 1 && (
+                                        <span style={{ color: done ? '#0A7C59' : '#D0D7E3', fontSize: 10 }}>→</span>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+
+                              {/* Result messages */}
+                              {(mayaResult || mitraResult) && (
+                                <div className="mt-2 space-y-1">
+                                  {mayaResult && (
+                                    <p className={`text-xs ${mayaResult.startsWith('Error') ? 'text-[#E4002B]' : 'text-[#0A7C59]'}`}>
+                                      MAYA: {mayaResult}
+                                    </p>
+                                  )}
+                                  {mitraResult && (
+                                    <p className={`text-xs ${mitraResult.startsWith('Error') ? 'text-[#E4002B]' : 'text-[#0A7C59]'}`}>
+                                      MITRA: {mitraResult}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Gap / work product summary */}
+                              {(entry.productGaps.length > 0 || entry.workProducts.length > 0) && (
+                                <div className="flex items-center gap-4 mt-1.5">
+                                  {entry.workProducts.length > 0 && (
+                                    <span className="text-xs text-[#4A5568]">
+                                      {entry.workProducts.length} doc{entry.workProducts.length !== 1 ? 's' : ''} generated
+                                    </span>
+                                  )}
+                                  {entry.productGaps.length > 0 && (
+                                    <span className="text-xs text-[#B45309]">
+                                      {entry.productGaps.filter(g => g.status !== 'RESOLVED').length} open gap{entry.productGaps.filter(g => g.status !== 'RESOLVED').length !== 1 ? 's' : ''}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Stage badge */}
+                            <span
+                              className="flex-shrink-0 px-3 py-1 text-xs font-semibold rounded-full border"
+                              style={{ color: sc.color, background: sc.bg, borderColor: sc.border }}
+                            >
+                              {sc.label}
+                            </span>
+
+                            {/* Action buttons */}
+                            <div className="flex-shrink-0 flex items-center gap-2">
+                              <button
+                                onClick={() => runMaya(product.id, cc.id)}
+                                disabled={mayaBusy || mitraBusy || isFulfilled}
+                                className="px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                style={{
+                                  background: isFulfilled ? 'rgba(74,85,104,0.06)' : 'rgba(0,55,129,0.08)',
+                                  color: isFulfilled ? '#9AA3AF' : '#003781',
+                                  borderColor: isFulfilled ? '#D0D7E3' : 'rgba(0,55,129,0.25)',
+                                }}
+                                title="MAYA — Generate document updates for this product"
+                              >
+                                {mayaBusy ? 'Running…' : entry.workProducts.length > 0 ? 'Re-MAYA' : 'MAYA'}
+                              </button>
+                              <button
+                                onClick={() => runMitra(product.id, cc.requirementId, cc.id)}
+                                disabled={mayaBusy || mitraBusy || isFulfilled}
+                                className="px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                style={{
+                                  background: isFulfilled ? 'rgba(74,85,104,0.06)' : 'rgba(10,124,89,0.08)',
+                                  color: isFulfilled ? '#9AA3AF' : '#0A7C59',
+                                  borderColor: isFulfilled ? '#D0D7E3' : 'rgba(10,124,89,0.30)',
+                                }}
+                                title="MITRA — Assess compliance gaps for this product"
+                              >
+                                {mitraBusy ? 'Assessing…' : entry.productGaps.length > 0 ? 'Re-MITRA' : 'MITRA'}
+                              </button>
+                              <Link
+                                href={`/product-hub/products/${product.id}`}
+                                className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[#D0D7E3] text-[#4A5568] hover:border-[#003781] hover:text-[#003781] transition-colors"
+                              >
+                                Detail →
+                              </Link>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </div>
-
-              {/* Product info */}
-              <div className="px-6 py-5 border-b border-[#D0D7E3]">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-3 mb-1">
-                      <h2 className="text-lg font-bold text-[#003781]">{product.name}</h2>
-                      <span
-                        className="px-2 py-0.5 text-xs font-medium rounded border"
-                        style={{ color: crit.color, background: crit.bg, borderColor: crit.border }}
-                      >
-                        {product.criticality}
-                      </span>
-                      <span className="px-2 py-0.5 text-xs rounded border text-[#4A5568] border-[#D0D7E3] bg-[#F4F6F9]">
-                        {product.id}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-4 text-[#4A5568] text-sm">
-                      {product.hostingModel && (
-                        <span>
-                          <span className="font-medium">Hosting:</span> {product.hostingModel}
-                        </span>
-                      )}
-                      {product.owner && (
-                        <span>
-                          <span className="font-medium">Owner:</span> {product.owner}
-                        </span>
-                      )}
-                      {product.legalEntity && (
-                        <span>
-                          <span className="font-medium">Entity:</span> {product.legalEntity}
-                        </span>
-                      )}
-                    </div>
-                    {product.description && (
-                      <p className="text-[#4A5568] text-sm mt-2 max-w-2xl">{product.description}</p>
-                    )}
-                  </div>
-                  <Link
-                    href={`/product-hub/products/${product.id}`}
-                    className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90"
-                    style={{ background: '#003781' }}
-                  >
-                    View Detail &rarr;
-                  </Link>
-                </div>
-              </div>
-
-              {/* Per-regulation status grid */}
-              <div className="px-6 py-5 border-b border-[#D0D7E3]">
-                <p className="text-xs font-medium text-[#4A5568] uppercase tracking-wide mb-3">
-                  Compliance by Regulation
-                </p>
-                <div className="grid grid-cols-4 gap-3">
-                  {regOrder.map(code => {
-                    const st = regStatus[code] ?? 'NOT_ASSESSED'
-                    const s = statusStyle(st)
-                    return (
-                      <div
-                        key={code}
-                        className="rounded-lg border p-3"
-                        style={{
-                          borderColor: s.color,
-                          background: st === 'NON_COMPLIANT'
-                            ? 'rgba(228,0,43,0.05)'
-                            : st === 'COMPLIANT'
-                            ? 'rgba(10,124,89,0.05)'
-                            : 'rgba(74,85,104,0.04)',
-                        }}
-                      >
-                        <p className="text-xs font-bold text-[#003781] mb-1">
-                          {REG_LABELS[code] ?? code}
-                        </p>
-                        <p className="text-sm font-semibold" style={{ color: s.color }}>
-                          {s.label}
-                        </p>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Footer: gaps summary */}
-              <div className="px-6 py-4 bg-[#F4F6F9] flex items-center justify-between">
-                <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ background: totalOpenGaps > 0 ? '#E4002B' : '#0A7C59' }}
-                    />
-                    <span className="text-sm text-[#4A5568]">
-                      <span className="font-semibold text-[#1A1A2E]">{totalOpenGaps}</span> open product gap{totalOpenGaps !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#4A5568' }} />
-                    <span className="text-sm text-[#4A5568]">
-                      <span className="font-semibold text-[#1A1A2E]">{items.filter(i => i.applicable).length}</span> applicable regulation{items.filter(i => i.applicable).length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                </div>
-                <Link
-                  href={`/product-hub/products/${product.id}/compliance`}
-                  className="text-sm font-medium hover:underline"
-                  style={{ color: '#003781' }}
-                >
-                  View compliance detail &rarr;
-                </Link>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {products.length === 0 && !loading && (
-        <div className="text-center py-16 text-[#4A5568]">
-          <p className="text-lg">No products found in the registry.</p>
+            )
+          })}
         </div>
       )}
     </div>

@@ -99,96 +99,25 @@ function KpiCard({ label, value, sub }: { label: string; value: number | string;
 // Page
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface PendingRegulatoryUpdate {
-  id: string
-  sourceId: string
-  shortCode: string
-  sourceName: string
-  version: string
-  publishedAt: string
-  changeType: string
-  changeSummary: string
-}
-
 export default function ComplianceHubPage() {
   const [sources, setSources] = useState<RegulatorySource[]>([])
   const [gaps, setGaps] = useState<ComplianceGap[]>([])
   const [changes, setChanges] = useState<ControlChange[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [analyzing, setAnalyzing] = useState(false)
-  const [analyzeProgress, setAnalyzeProgress] = useState<string | null>(null)
-  const [analyzeResult, setAnalyzeResult] = useState<string | null>(null)
-  const [pendingUpdates, setPendingUpdates] = useState<PendingRegulatoryUpdate[]>([])
-  const [bannerDismissed, setBannerDismissed] = useState(false)
-  const [dismissing, setDismissing] = useState(false)
-
-  async function handleAnalyzeAll() {
-    setAnalyzing(true)
-    setAnalyzeProgress('Fetching requirements…')
-    setAnalyzeResult(null)
-    try {
-      // Collect all requirements across all sources sequentially to avoid rate limits
-      const allReqs: Array<{ id: string; articleRef: string; sourceShortCode: string }> = []
-      for (const src of sources) {
-        const reqRes = await fetch(`/api/compliance-hub/requirements?sourceId=${src.id}`)
-        const reqs = await reqRes.json()
-        if (Array.isArray(reqs)) {
-          for (const req of reqs) {
-            allReqs.push({ id: req.id, articleRef: req.articleRef, sourceShortCode: src.shortCode })
-          }
-        }
-      }
-
-      let totalGaps = 0
-      for (let i = 0; i < allReqs.length; i++) {
-        const req = allReqs[i]
-        setAnalyzeProgress(`Analyzing requirement ${i + 1} of ${allReqs.length} (${req.sourceShortCode}: ${req.articleRef})…`)
-        try {
-          const res = await fetch(`/api/compliance-hub/requirements/${req.id}/analyze`, { method: 'POST' })
-          const data = await res.json()
-          if (data.ok) {
-            totalGaps += data.gaps?.length ?? 0
-          }
-        } catch {
-          // continue on individual failures
-        }
-      }
-
-      setAnalyzeResult(`Analysis complete. Found ${totalGaps} new gap${totalGaps !== 1 ? 's' : ''} across ${allReqs.length} requirement${allReqs.length !== 1 ? 's' : ''}.`)
-      setAnalyzeProgress(null)
-    } catch (err) {
-      setAnalyzeProgress(null)
-      setAnalyzeResult(`Error: ${String(err)}`)
-    } finally {
-      setAnalyzing(false)
-    }
-  }
-
-  async function handleDismissBanner(update: PendingRegulatoryUpdate) {
-    setDismissing(true)
-    try {
-      await fetch(`/api/compliance-hub/regulatory-updates/${update.id}/acknowledge`, { method: 'POST' })
-    } finally {
-      setDismissing(false)
-      setBannerDismissed(true)
-    }
-  }
 
   useEffect(() => {
     async function load() {
       try {
-        const [srcRes, gapRes, chgRes, updatesRes] = await Promise.all([
+        const [srcRes, gapRes, chgRes] = await Promise.all([
           fetch('/api/compliance-hub/regulations'),
           fetch('/api/compliance-hub/gaps'),
           fetch('/api/compliance-hub/control-changes'),
-          fetch('/api/compliance-hub/regulatory-updates'),
         ])
-        const [srcData, gapData, chgData, updatesData] = await Promise.all([
+        const [srcData, gapData, chgData] = await Promise.all([
           srcRes.json(),
           gapRes.json(),
           chgRes.json(),
-          updatesRes.json(),
         ])
         if (srcData.error) throw new Error(srcData.error)
         if (gapData.error) throw new Error(gapData.error)
@@ -196,9 +125,6 @@ export default function ComplianceHubPage() {
         setSources(srcData as RegulatorySource[])
         setGaps(gapData as ComplianceGap[])
         setChanges(chgData as ControlChange[])
-        if (Array.isArray(updatesData.pending)) {
-          setPendingUpdates(updatesData.pending as PendingRegulatoryUpdate[])
-        }
       } catch (err) {
         setError(String(err))
       } finally {
@@ -240,116 +166,12 @@ export default function ComplianceHubPage() {
 
       {!loading && !error && (
         <>
-          {/* Regulatory update banner */}
-          {!bannerDismissed && pendingUpdates.length > 0 && (() => {
-            const update = pendingUpdates[0]
-            const pubDate = new Date(update.publishedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-            return (
-              <div
-                className="rounded-lg p-4"
-                style={{ background: '#FFFBEB', border: '2px solid #F59E0B' }}
-              >
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <span className="text-base mt-0.5 flex-shrink-0" style={{ color: '#F59E0B' }}>⚠</span>
-                    <div>
-                      <p className="text-sm font-semibold" style={{ color: '#B45309' }}>
-                        Regulatory Update Detected
-                      </p>
-                      <p className="text-sm mt-0.5" style={{ color: '#92400E' }}>
-                        <span className="font-mono font-semibold">{update.shortCode}</span> {update.version} — New version published {pubDate}
-                      </p>
-                      <p className="text-xs mt-1" style={{ color: '#B45309' }}>
-                        {update.changeType.charAt(0).toUpperCase() + update.changeType.slice(1)} detected · Impact analysis required
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Link
-                      href={`/compliance-hub/regulatory-updates/${update.id}`}
-                      className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded"
-                      style={{ background: '#F59E0B', color: 'white', border: 'none' }}
-                    >
-                      Review Changes →
-                    </Link>
-                    <button
-                      disabled={dismissing}
-                      onClick={() => handleDismissBanner(update)}
-                      className="inline-flex items-center text-xs font-medium px-3 py-1.5 rounded transition-opacity"
-                      style={{
-                        background: 'white',
-                        color: '#B45309',
-                        border: '1px solid #F59E0B',
-                        opacity: dismissing ? 0.6 : 1,
-                        cursor: dismissing ? 'not-allowed' : 'pointer',
-                      }}
-                    >
-                      {dismissing ? 'Dismissing…' : 'Dismiss'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
-
           {/* KPI row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KpiCard label="Regulations monitored" value={sources.length} sub="EU regulatory framework" />
             <KpiCard label="Open gaps" value={openGaps} sub="Awaiting remediation" />
             <KpiCard label="Approved changes" value={approvedChanges} sub="Control changes approved" />
             <KpiCard label="Published changes" value={publishedChanges} sub="Live in control catalogue" />
-          </div>
-
-          {/* AI Actions panel */}
-          <div
-            className="rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap"
-            style={{ background: '#F5F3FF', border: '1px solid #DDD6FE' }}
-          >
-            <div className="flex items-start gap-3 flex-1 min-w-0">
-              <span className="text-base mt-0.5" style={{ color: '#7C3AED' }}>✦</span>
-              <div>
-                <p className="text-sm font-semibold" style={{ color: '#5B21B6' }}>AI Analysis</p>
-                <p className="text-xs mt-0.5" style={{ color: '#6D28D9' }}>
-                  Run AI gap analysis across all regulations to identify compliance gaps.
-                </p>
-                {analyzeProgress && (
-                  <p className="text-xs mt-1 flex items-center gap-1.5" style={{ color: '#7C3AED' }}>
-                    <svg className="animate-spin w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                    </svg>
-                    {analyzeProgress}
-                  </p>
-                )}
-                {analyzeResult && !analyzeProgress && (
-                  <p className="text-xs mt-1 font-medium" style={{ color: '#0A7C59' }}>{analyzeResult}</p>
-                )}
-              </div>
-            </div>
-            <button
-              disabled={analyzing || sources.length === 0}
-              onClick={handleAnalyzeAll}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded flex-shrink-0 transition-opacity"
-              style={{
-                background: '#7C3AED',
-                color: 'white',
-                border: 'none',
-                opacity: analyzing || sources.length === 0 ? 0.6 : 1,
-                cursor: analyzing || sources.length === 0 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {analyzing ? (
-                <>
-                  <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Analyzing…
-                </>
-              ) : (
-                <>✦ AI: Analyze All Gaps →</>
-              )}
-            </button>
           </div>
 
           {/* Regulatory Intelligence Scanner panel */}

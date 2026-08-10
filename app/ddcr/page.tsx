@@ -672,8 +672,8 @@ function TowersTab() {
         if (!tRes.ok) throw new Error(`Towers HTTP ${tRes.status}`)
         if (!iRes.ok) throw new Error(`Items HTTP ${iRes.status}`)
         const [towersData, itemsData] = await Promise.all([tRes.json(), iRes.json()])
-        setTowers(towersData as TowerStat[])
-        setItems(itemsData as DdcrItem[])
+        setTowers((towersData as { towers: TowerStat[] }).towers ?? [])
+        setItems((itemsData as { items: DdcrItem[] }).items ?? [])
       } catch (e) {
         setError(String(e))
       } finally {
@@ -1060,7 +1060,7 @@ export default function DDCRPage() {
       try {
         const res = await fetch('/api/ddcr/items')
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        setItems(await res.json() as DdcrItem[])
+        setItems((await res.json() as { items: DdcrItem[] }).items ?? [])
         setItemsLoaded(true)
       } catch (e) {
         setItemsError(String(e))

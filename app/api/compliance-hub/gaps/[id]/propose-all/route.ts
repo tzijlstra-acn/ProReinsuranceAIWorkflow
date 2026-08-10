@@ -11,9 +11,6 @@ import {
 import { eq } from 'drizzle-orm'
 import { getAiProvider } from '@/lib/ai/provider'
 
-// Generates a control change proposal + document update proposals for a gap.
-// Stores as a DRAFT control_change with documentUpdates embedded in proposedChanges JSON.
-// Returns the full before/after state for the review UI.
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -31,97 +28,71 @@ export async function POST(
     const source = db.select().from(regulatorySources).where(eq(regulatorySources.id, gap.sourceId)).get()
     if (!source) return NextResponse.json({ error: 'Source not found' }, { status: 404 })
 
-    // Find the documents mapped to this requirement
+    // Affected documents
     const mappings = db.select().from(requirementDocumentMappings).all()
       .filter(m => m.requirementId === gap.requirementId)
     const docIds = [...new Set(mappings.map(m => m.documentId))]
     const allDocs = db.select().from(internalDocuments).all()
-    const affectedDocs = docIds.length > 0
-      ? allDocs.filter(d => docIds.includes(d.id))
-      : []
+    const affectedDocs = docIds.length > 0 ? allDocs.filter(d => docIds.includes(d.id)) : []
 
-    // 1. Generate control change proposal (existing AI method)
-    const controlProposal = await ai.generateControlChange(
-      {
-        title: gap.title,
-        description: gap.description,
-        severity: gap.severity,
-        gapType: gap.gapType,
-        aiAnalysis: gap.aiAnalysis,
-      },
-      {
-        articleRef: requirement.articleRef,
-        title: requirement.title,
-        description: requirement.description,
-        obligationType: requirement.obligationType,
-      },
-      source.shortCode
+    // Find most recent published control for this requirement (the live baseline)
+    const publishedControls = db.select().from(controlChanges).all()
+      .filter(c => c.requirementId === gap.requirementId && c.status === 'PUBLISHED')
+      .sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? ''))
+    const existingPublished = publishedControls[0] ?? null
+
+    let existingControl: { id: string; title: string; description: string; steps: string[]; acceptanceCriteria: string[] } | null = null
+    if (existingPublished) {
+      try {
+        const pc = JSON.parse(existingPublished.proposedChanges ?? '{}') as Record<string, unknown>
+        existingControl = {
+          id: existingPublished.id,
+          title: existingPublished.title,
+          description: existingPublished.description,
+          steps: Array.isArray(pc.steps) ? (pc.steps as unknown[]).map(String) : [],
+          acceptanceCriteria: Array.isArray(pc.acceptanceCriteria) ? (pc.acceptanceCriteria as unknown[]).map(String) : [],
+        }
+      } catch { /* use null if JSON fails */ }
+    }
+
+    const linked = await ai.proposeLinkedChanges(
+      { title: gap.title, description: gap.description, severity: gap.severity, gapType: gap.gapType, aiAnalysis: gap.aiAnalysis },
+      { articleRef: requirement.articleRef, title: requirement.title, description: requirement.description, obligationType: requirement.obligationType },
+      source.shortCode,
+      affectedDocs.map(d => ({ id: d.id, title: d.title, type: d.type, content: d.content })),
+      existingControl
     )
 
-    // 2. Generate document update proposals (one per affected document)
-    const documentUpdates: Array<{
-      documentId: string
-      documentTitle: string
-      currentContent: string
-      proposedContent: string
-      changeSummary: string
-      addedClauses: string[]
-    }> = []
-
-    for (const doc of affectedDocs) {
-      try {
-        const docProposal = await ai.proposeDocumentUpdate(
-          {
-            title: gap.title,
-            description: gap.description,
-            severity: gap.severity,
-            gapType: gap.gapType,
-            aiAnalysis: gap.aiAnalysis,
-          },
-          {
-            articleRef: requirement.articleRef,
-            title: requirement.title,
-            description: requirement.description,
-          },
-          doc,
-          source.shortCode
-        )
-        documentUpdates.push({
-          documentId: docProposal.documentId,
-          documentTitle: docProposal.documentTitle,
-          currentContent: docProposal.currentContent,
-          proposedContent: docProposal.proposedContent,
-          changeSummary: docProposal.changeSummary,
-          addedClauses: docProposal.addedClauses,
-        })
-      } catch {
-        // skip individual document failures
-      }
-    }
-
-    // 3. Store control change as DRAFT with documentUpdates embedded
     const controlChangeId = `CC-REVIEW-${Date.now()}`
     const now = new Date().toISOString()
-
-    const proposedChangesPayload = {
-      ...controlProposal.proposedChanges,
-      documentUpdates,
-    }
 
     db.insert(controlChanges).values({
       id: controlChangeId,
       gapId: gap.id,
       requirementId: gap.requirementId,
-      title: controlProposal.title,
-      description: controlProposal.description,
-      changeType: controlProposal.changeType,
+      title: linked.control.title,
+      description: linked.control.description,
+      changeType: linked.control.changeType,
       status: 'DRAFT',
       proposedAt: now,
-      proposedChanges: JSON.stringify(proposedChangesPayload),
+      proposedChanges: JSON.stringify({
+        summary: linked.control.description,
+        steps: linked.control.steps,
+        documentsToUpdate: linked.documents.map(d => d.documentTitle),
+        technicalChanges: '',
+        acceptanceCriteria: linked.control.acceptanceCriteria,
+        trigger: linked.trigger,
+        existingControlId: existingControl?.id ?? null,
+        documentUpdates: linked.documents.map(d => ({
+          documentId: d.documentId,
+          documentTitle: d.documentTitle,
+          proposedContent: d.proposedContent,
+          changeSummary: d.changeSummary,
+        })),
+      }),
       aiGenerated: true,
     }).run()
 
-    // 4. Transition gap to IN_ANALYSIS
     db.update(complianceGaps)
       .set({ status: 'IN_ANALYSIS' })
       .where(eq(complianceGaps.id, id))
@@ -130,24 +101,9 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       controlChangeId,
-      gap: {
-        id: gap.id,
-        title: gap.title,
-        severity: gap.severity,
-        gapType: gap.gapType,
-        requirementRef: requirement.articleRef,
-        requirementTitle: requirement.title,
-        sourceShortCode: source.shortCode,
-        aiAnalysis: gap.aiAnalysis,
-      },
-      controlProposal: {
-        title: controlProposal.title,
-        description: controlProposal.description,
-        changeType: controlProposal.changeType,
-        estimatedEffort: controlProposal.estimatedEffort,
-        proposedChanges: controlProposal.proposedChanges,
-      },
-      documentUpdates,
+      trigger: linked.trigger,
+      control: linked.control,
+      documents: linked.documents,
     })
   } catch (err) {
     console.error('[Propose All]', err)
