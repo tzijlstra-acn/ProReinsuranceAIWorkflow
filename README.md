@@ -1,4 +1,4 @@
-# Automation of Compliance — Munich Re Multi-Regulation Platform
+# Automation of Compliance — Multi-Regulation Platform
 
 A Next.js 16 platform demonstrating AI-assisted compliance automation across multiple EU regulations (DORA, NIS2, GDPR) for a financial institution product portfolio. The platform covers the full lifecycle from regulatory gap identification to DDCR-compliant status, orchestrated through a three-team workflow.
 
