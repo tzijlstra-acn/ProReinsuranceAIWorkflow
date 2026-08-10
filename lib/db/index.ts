@@ -489,6 +489,51 @@ sqlite.exec(`
     reported_by TEXT,
     notes TEXT
   );
+
+  -- ── DDCR Federated Cockpit ─────────────────────────────────────────────────
+
+  CREATE TABLE IF NOT EXISTS ddcr_items (
+    id TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    entity_name TEXT NOT NULL,
+    tower TEXT NOT NULL,
+    org_unit TEXT,
+    section TEXT,
+    program TEXT,
+    responsible_role TEXT NOT NULL,
+    action_owner TEXT,
+    regulatory_framework TEXT NOT NULL,
+    requirement_ref TEXT NOT NULL,
+    requirement_title TEXT,
+    applicability_status TEXT NOT NULL DEFAULT 'APPLICABLE',
+    applicability_rationale TEXT,
+    execution_status TEXT NOT NULL DEFAULT 'ACTION_REQUIRED',
+    verification_status TEXT NOT NULL DEFAULT 'NOT_STARTED',
+    reporting_status TEXT NOT NULL DEFAULT 'NON_COMPLIANT',
+    next_action TEXT,
+    practical_guidance TEXT,
+    due_date TEXT,
+    source_system TEXT NOT NULL,
+    source_system_url TEXT,
+    source_system_ref TEXT,
+    evidence_references TEXT DEFAULT '[]',
+    last_updated TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS ddcr_item_history (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL,
+    changed_at TEXT NOT NULL,
+    changed_by TEXT,
+    source_system TEXT,
+    previous_reporting_status TEXT,
+    new_reporting_status TEXT,
+    previous_execution_status TEXT,
+    new_execution_status TEXT,
+    change_reason TEXT
+  );
 `)
 
 export const db = drizzle(sqlite, { schema })

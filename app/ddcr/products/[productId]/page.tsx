@@ -773,6 +773,11 @@ export default function ProductDDCRDetailPage() {
         )}
       </div>
 
+      {/* ── Source systems note ───────────────────────────────────────────── */}
+      <div style={{ background: '#EBF5FF', border: '1px solid #C7D2E8', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#003781' }}>
+        <strong>Note:</strong> This view shows Product Hub data for this application. DDCR aggregates from multiple source systems — <Link href="/ddcr" style={{ color: '#003781' }}>see full DDCR cockpit</Link> for the complete picture.
+      </div>
+
       {/* ── Loading / error ────────────────────────────────────────────────── */}
       {loading && !data && (
         <div className="flex items-center justify-center h-48 text-[#4A5568]">

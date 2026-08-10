@@ -528,21 +528,6 @@ export default function WorkflowPage() {
     })
   }
 
-  // ── DDCR actions ────────────────────────────────────────────────────────────
-
-  function transitionCompliant(productId: string, requirementId: string | null, sourceId: string | null) {
-    const key = `ddcr-${productId}-${requirementId}`
-    act(key, async () => {
-      const res = await fetch('/api/ddcr/transition', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId, requirementId, sourceId, approvedBy: 'DDCR Officer' }),
-      })
-      const json = await res.json()
-      if (!json.ok) throw new Error(json.error ?? 'Transition failed — gates not passed')
-    })
-  }
-
   // ── Render ──────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -984,7 +969,22 @@ export default function WorkflowPage() {
             </div>
           </div>
 
-          <SectionLabel label="Pending Review" count={pendingCount} />
+          {/* Info callout */}
+          <div
+            style={{
+              background: '#F0FAF6',
+              border: '1px solid #A7F3D0',
+              borderRadius: 8,
+              padding: '8px 12px',
+              fontSize: 10,
+              color: '#065F46',
+              lineHeight: 1.5,
+            }}
+          >
+            DDCR is a read-only reporting cockpit. Status updates are received from Product Hub, ServiceNow and other source systems.
+          </div>
+
+          <SectionLabel label="Items" count={pendingCount} />
 
           {pendingCount === 0 && <EmptyColumn label="All clear — no items in queue" />}
 
@@ -992,13 +992,10 @@ export default function WorkflowPage() {
             const ddcrSt = ddcrStatusStyle(item.ddcrStatus)
             const epSt = epStatusStyle(item.evidencePackageStatus)
             const vrSt = vrStatusStyle(item.latestVerificationStatus)
-            const ddcrKey = `ddcr-${item.productId}-${item.requirementId}`
-            const canTransition =
-              item.ddcrStatus === 'NON_COMPLIANT' || item.ddcrStatus === 'PENDING'
 
             return (
-              <div key={ddcrKey} style={CARD}>
-                {/* Product + source + requirement */}
+              <div key={`${item.productId}-${item.requirementId}`} style={CARD}>
+                {/* Product + source */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
                   <Pill label={item.sourceShortCode} background="#F0FAF6" color="#0A7C59" rounded={false} />
                   <Pill label={ddcrSt.label} background={ddcrSt.background} color={ddcrSt.color} />
@@ -1011,7 +1008,7 @@ export default function WorkflowPage() {
                   {item.requirementTitle}
                 </p>
 
-                {/* Evidence + verification status */}
+                {/* Evidence + verification status (read-only) */}
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
                   {item.evidencePackageStatus !== null && (
                     <Pill
@@ -1031,28 +1028,11 @@ export default function WorkflowPage() {
                   )}
                 </div>
 
-                {/* Transition button */}
-                {canTransition && (
-                  <div>
-                    <Btn
-                      onClick={() =>
-                        transitionCompliant(item.productId, item.requirementId, item.sourceId)
-                      }
-                      busy={busy[ddcrKey]}
-                      bg="#0A7C59"
-                      color="white"
-                    >
-                      {busy[ddcrKey] ? 'Transitioning…' : 'Transition to COMPLIANT →'}
-                    </Btn>
-                    <InlineError msg={err[ddcrKey]} />
-                  </div>
-                )}
-
                 <Link
-                  href={`/ddcr/products/${item.productId}`}
-                  style={{ fontSize: 10, color: '#0A7C59', fontWeight: 600, marginTop: 6, display: 'inline-block' }}
+                  href="/ddcr"
+                  style={{ fontSize: 10, color: '#0A7C59', fontWeight: 600, display: 'inline-block' }}
                 >
-                  View DDCR →
+                  View in DDCR →
                 </Link>
               </div>
             )

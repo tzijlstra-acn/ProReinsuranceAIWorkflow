@@ -496,6 +496,62 @@ export const requirementStatusHistory = sqliteTable('requirement_status_history'
   correlationId: text('correlation_id'),
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DDCR Federated Cockpit — new data model (read-only aggregation from source systems)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const ddcrItems = sqliteTable('ddcr_items', {
+  id: text('id').primaryKey(),
+  // Entity
+  entityType: text('entity_type').notNull(), // 'APPLICATION' | 'PROJECT'
+  entityId: text('entity_id').notNull(),
+  entityName: text('entity_name').notNull(),
+  // Organization
+  tower: text('tower').notNull(),
+  orgUnit: text('org_unit'),
+  section: text('section'),
+  program: text('program'),
+  // Ownership
+  responsibleRole: text('responsible_role').notNull(),
+  actionOwner: text('action_owner'),
+  // Regulatory
+  regulatoryFramework: text('regulatory_framework').notNull(),
+  requirementRef: text('requirement_ref').notNull(),
+  requirementTitle: text('requirement_title'),
+  // Four separate status concepts
+  applicabilityStatus: text('applicability_status').notNull().default('APPLICABLE'),
+  applicabilityRationale: text('applicability_rationale'),
+  executionStatus: text('execution_status').notNull().default('ACTION_REQUIRED'),
+  verificationStatus: text('verification_status').notNull().default('NOT_STARTED'),
+  reportingStatus: text('reporting_status').notNull().default('NON_COMPLIANT'),
+  // Action
+  nextAction: text('next_action'),
+  practicalGuidance: text('practical_guidance'),
+  dueDate: text('due_date'),
+  // Source system
+  sourceSystem: text('source_system').notNull(),
+  sourceSystemUrl: text('source_system_url'),
+  sourceSystemRef: text('source_system_ref'),
+  // Evidence (JSON array: Array<{id,label,type,url?}>)
+  evidenceReferences: text('evidence_references').default('[]'),
+  // Timestamps
+  lastUpdated: text('last_updated').default(sql`(datetime('now'))`),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+export const ddcrItemHistory = sqliteTable('ddcr_item_history', {
+  id: text('id').primaryKey(),
+  itemId: text('item_id').notNull(),
+  changedAt: text('changed_at').notNull(),
+  changedBy: text('changed_by'),
+  sourceSystem: text('source_system'),
+  previousReportingStatus: text('previous_reporting_status'),
+  newReportingStatus: text('new_reporting_status'),
+  previousExecutionStatus: text('previous_execution_status'),
+  newExecutionStatus: text('new_execution_status'),
+  changeReason: text('change_reason'),
+})
+
 // Current compliance status for DDCR reporting — requirement and product level
 export const ddcrReportingRecords = sqliteTable('ddcr_reporting_records', {
   id: text('id').primaryKey(),

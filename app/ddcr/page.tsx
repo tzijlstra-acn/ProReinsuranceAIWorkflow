@@ -2,519 +2,1133 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Loader2, RefreshCw, AlertCircle, CheckCircle2, MinusCircle, Clock, ChevronRight } from 'lucide-react'
-import { clsx } from 'clsx'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-type DDCRStatus = 'COMPLIANT' | 'NON_COMPLIANT' | 'NOT_APPLICABLE' | 'EXCEPTION_APPROVED' | 'PENDING'
+interface DdcrItem {
+  id: string
+  entityType: 'APPLICATION' | 'PROJECT'
+  entityId: string
+  entityName: string
+  tower: string
+  orgUnit: string | null
+  section: string | null
+  program: string | null
+  responsibleRole: string
+  actionOwner: string | null
+  regulatoryFramework: string
+  requirementRef: string
+  requirementTitle: string | null
+  applicabilityStatus: string
+  applicabilityRationale: string | null
+  executionStatus: string
+  verificationStatus: string
+  reportingStatus: string
+  nextAction: string | null
+  practicalGuidance: string | null
+  dueDate: string | null
+  sourceSystem: string
+  sourceSystemUrl: string | null
+  sourceSystemRef: string | null
+  evidenceReferences: Array<{ id: string; label: string; type: string; url?: string }>
+  lastUpdated: string | null
+  createdAt: string | null
+}
 
-interface RegulationSummary {
-  sourceId: string
-  shortCode: string
-  name: string
-  status: DDCRStatus
-  evidencePackageId: string | null
-  requirementCount: number
-  nonCompliantCount: number
+interface SummaryData {
+  total: number
+  byReportingStatus: {
+    NON_COMPLIANT: number
+    PARTIALLY_COMPLIANT: number
+    COMPLIANT: number
+    NOT_ASSESSED: number
+    EXCEPTION_APPROVED: number
+  }
+  byExecutionStatus: {
+    ACTION_REQUIRED: number
+    OVERDUE: number
+    IN_PROGRESS: number
+    COMPLETED: number
+    NO_ACTION_REQUIRED: number
+  }
+  byTower: Record<string, number>
+  bySourceSystem: Record<string, number>
+  overdueCount: number
+  actionRequiredCount: number
   compliantCount: number
-  notApplicableCount: number
+  evidenceIncompleteCount: number
 }
 
-interface RequirementSummary {
-  requirementId: string | null
-  sourceId: string | null
-  status: DDCRStatus
-  effectiveAt: string
-  evidencePackageId: string | null
-  notes: string | null
-  title: string
-  articleRef: string
-  obligationType: string
-  obligationLevel: string
-  shortCode: string
+interface TowerStat {
+  tower: string
+  total: number
+  compliant: number
+  nonCompliant: number
+  partiallyCompliant: number
+  overdue: number
+  actionRequired: number
+  inProgress: number
 }
 
-interface ProductSummary {
-  productId: string
-  productName: string
-  productType: string
-  criticality: string
-  overallStatus: DDCRStatus
-  applicableRequirementCount: number
-  nonCompliantRequirementCount: number
-  byRegulation: RegulationSummary[]
-  byRequirement: RequirementSummary[]
+interface AskAnswer {
+  answer: string
+  sections: Array<{ heading: string; content: string }>
+  sources: string[]
 }
 
-interface SummaryResponse {
-  products: ProductSummary[]
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const REPORTING_CFG: Record<string, { label: string; color: string; bg: string }> = {
+  NON_COMPLIANT:       { label: 'Non-Compliant',       color: '#E4002B', bg: '#FFF0F3' },
+  PARTIALLY_COMPLIANT: { label: 'Partially Compliant', color: '#B45309', bg: '#FEF3C7' },
+  COMPLIANT:           { label: 'Compliant',           color: '#0A7C59', bg: '#F0FAF6' },
+  NOT_ASSESSED:        { label: 'Not Assessed',        color: '#6B7280', bg: '#F3F4F6' },
+  EXCEPTION_APPROVED:  { label: 'Exception Approved',  color: '#7C3AED', bg: '#F5F3FF' },
+}
+
+const EXECUTION_CFG: Record<string, { label: string; color: string; bg: string }> = {
+  OVERDUE:            { label: 'Overdue',          color: '#E4002B', bg: '#FFF0F3' },
+  ACTION_REQUIRED:    { label: 'Action Required',  color: '#B45309', bg: '#FEF3C7' },
+  IN_PROGRESS:        { label: 'In Progress',      color: '#003781', bg: '#EBF5FF' },
+  COMPLETED:          { label: 'Completed',        color: '#0A7C59', bg: '#F0FAF6' },
+  NO_ACTION_REQUIRED: { label: 'No Action Req.',  color: '#6B7280', bg: '#F3F4F6' },
+}
+
+const SOURCE_CFG: Record<string, { label: string; color: string; bg: string }> = {
+  PRODUCT_HUB:        { label: 'Product Hub',       color: '#003781', bg: '#EBF5FF' },
+  SERVICENOW:         { label: 'ServiceNow',         color: '#059669', bg: '#ECFDF5' },
+  PROJECT_MANAGEMENT: { label: 'Project Management', color: '#7C3AED', bg: '#F5F3FF' },
+  GRC:                { label: 'GRC Platform',       color: '#B45309', bg: '#FEF3C7' },
+  LEANIX:             { label: 'LeanIX',             color: '#0891B2', bg: '#E0F2FE' },
+  CODE_SCANNING:      { label: 'Code Scanning',      color: '#6B7280', bg: '#F3F4F6' },
+}
+
+const ROLES = [
+  'IT Product Manager',
+  'Program Manager',
+  'Project Manager',
+  'Security Engineer',
+  'Risk Manager',
+  'Enterprise Architect',
+  'PMO',
+]
+
+const STATUS_SORT_ORDER: Record<string, number> = {
+  NON_COMPLIANT: 0, PARTIALLY_COMPLIANT: 1, NOT_ASSESSED: 2, EXCEPTION_APPROVED: 3, COMPLIANT: 4,
+}
+
+const EXEC_SORT_ORDER: Record<string, number> = {
+  OVERDUE: 0, ACTION_REQUIRED: 1, IN_PROGRESS: 2, COMPLETED: 3, NO_ACTION_REQUIRED: 4,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<DDCRStatus, { label: string; color: string; bg: string; icon: React.FC<{ className?: string }> }> = {
-  COMPLIANT: {
-    label: 'COMPLIANT',
-    color: '#0A7C59',
-    bg: '#F0FAF6',
-    icon: ({ className }) => <CheckCircle2 className={className} />,
-  },
-  NON_COMPLIANT: {
-    label: 'NON-COMPLIANT',
-    color: '#E4002B',
-    bg: '#FFF0F3',
-    icon: ({ className }) => <AlertCircle className={className} />,
-  },
-  NOT_APPLICABLE: {
-    label: 'N/A',
-    color: '#4A5568',
-    bg: '#F7F8FA',
-    icon: ({ className }) => <MinusCircle className={className} />,
-  },
-  EXCEPTION_APPROVED: {
-    label: 'EXCEPTION',
-    color: '#B45309',
-    bg: '#FFFBEB',
-    icon: ({ className }) => <Clock className={className} />,
-  },
-  PENDING: {
-    label: 'PENDING',
-    color: '#B45309',
-    bg: '#FFFBEB',
-    icon: ({ className }) => <Clock className={className} />,
-  },
-}
-
-function StatusBadge({
-  status,
-  size = 'sm',
-}: {
-  status: DDCRStatus
-  size?: 'sm' | 'lg'
-}) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.PENDING
-  const Icon = cfg.icon
-  return (
-    <span
-      className={clsx(
-        'inline-flex items-center gap-1.5 font-semibold rounded-md',
-        size === 'lg' ? 'px-3 py-1.5 text-sm' : 'px-2 py-0.5 text-xs'
-      )}
-      style={{ backgroundColor: cfg.bg, color: cfg.color, border: `1px solid ${cfg.color}30` }}
-    >
-      <Icon className={size === 'lg' ? 'w-4 h-4' : 'w-3 h-3'} />
-      {cfg.label}
-    </span>
-  )
-}
-
-function ObligationTypeBadge({ type }: { type: string }) {
-  const colors: Record<string, string> = {
-    TECHNICAL_CONTROL: '#EBF5FF',
-    PROCESS: '#F3E8FF',
-    DOCUMENTATION: '#ECFDF5',
-    GOVERNANCE: '#FFF7ED',
-    REPORTING: '#F0F9FF',
-  }
-  return (
-    <span
-      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-      style={{ backgroundColor: colors[type] ?? '#F4F6F9', color: '#4A5568' }}
-    >
-      {type.replace('_', ' ')}
-    </span>
-  )
-}
-
-function formatDate(iso: string): string {
+function formatDate(iso: string | null): string {
+  if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    })
+    return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
   } catch {
     return iso
   }
 }
 
-function requirementSummaryText(reg: RegulationSummary): string {
-  if (reg.notApplicableCount > 0 && reg.requirementCount === 0) return 'n/a'
-  if (reg.nonCompliantCount > 0) {
-    return `${reg.nonCompliantCount}/${reg.requirementCount} non-compliant`
-  }
-  if (reg.compliantCount === reg.requirementCount && reg.requirementCount > 0) {
-    return `${reg.requirementCount}/${reg.requirementCount} compliant`
-  }
-  return `${reg.requirementCount} requirement${reg.requirementCount !== 1 ? 's' : ''}`
+function repCfg(status: string) {
+  return REPORTING_CFG[status] ?? { label: status, color: '#6B7280', bg: '#F3F4F6' }
+}
+
+function execCfg(status: string) {
+  return EXECUTION_CFG[status] ?? { label: status, color: '#6B7280', bg: '#F3F4F6' }
+}
+
+function srcCfg(source: string) {
+  return SOURCE_CFG[source] ?? { label: source, color: '#6B7280', bg: '#F3F4F6' }
+}
+
+function worstReportingStatus(statuses: string[]): string {
+  return statuses.reduce((worst, s) =>
+    (STATUS_SORT_ORDER[s] ?? 5) < (STATUS_SORT_ORDER[worst] ?? 5) ? s : worst,
+    statuses[0] ?? 'NOT_ASSESSED'
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main page
+// Pill / badge components
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function DDCRPage() {
-  const [data, setData] = useState<SummaryResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+function ReportingPill({ status }: { status: string }) {
+  const cfg = repCfg(status)
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 8px', borderRadius: 999,
+      fontSize: 11, fontWeight: 700, color: cfg.color, background: cfg.bg,
+      border: `1px solid ${cfg.color}40`, whiteSpace: 'nowrap',
+    }}>
+      {cfg.label}
+    </span>
+  )
+}
 
-  const fetchData = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/ddcr/summary')
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = await res.json() as SummaryResponse
-      setData(json)
-    } catch (err) {
-      setError(String(err))
-    } finally {
-      setLoading(false)
+function ExecutionPill({ status }: { status: string }) {
+  const cfg = execCfg(status)
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 8px', borderRadius: 999,
+      fontSize: 11, fontWeight: 700, color: cfg.color, background: cfg.bg,
+      border: `1px solid ${cfg.color}40`, whiteSpace: 'nowrap',
+    }}>
+      {cfg.label}
+    </span>
+  )
+}
+
+function SourceBadge({ source }: { source: string }) {
+  const cfg = srcCfg(source)
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 8px', borderRadius: 4,
+      fontSize: 10, fontWeight: 700, color: cfg.color, background: cfg.bg,
+      border: `1px solid ${cfg.color}30`, whiteSpace: 'nowrap', letterSpacing: '0.02em',
+    }}>
+      {cfg.label}
+    </span>
+  )
+}
+
+function EntityTypeBadge({ type }: { type: 'APPLICATION' | 'PROJECT' }) {
+  const color = type === 'APPLICATION' ? '#003781' : '#7C3AED'
+  const bg = type === 'APPLICATION' ? '#EBF5FF' : '#F5F3FF'
+  return (
+    <span style={{
+      display: 'inline-block', padding: '1px 6px', borderRadius: 4,
+      fontSize: 9, fontWeight: 700, color, background: bg,
+      border: `1px solid ${color}30`, whiteSpace: 'nowrap', textTransform: 'uppercase',
+    }}>
+      {type}
+    </span>
+  )
+}
+
+function SourceLink({ url, label = 'View in source' }: { url: string | null; label?: string }) {
+  if (!url) return <span style={{ color: '#A0ADB9', fontSize: 12 }}>—</span>
+  if (url.startsWith('/')) {
+    return (
+      <Link href={url} style={{ fontSize: 12, color: '#003781', fontWeight: 600, textDecoration: 'none' }}>
+        {label} →
+      </Link>
+    )
+  }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+      style={{ fontSize: 12, color: '#003781', fontWeight: 600, textDecoration: 'none' }}>
+      {label} →
+    </a>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared layout primitives
+// ─────────────────────────────────────────────────────────────────────────────
+
+function KpiTile({ label, value, color = '#003781', loading = false }: {
+  label: string; value: number; color?: string; loading?: boolean
+}) {
+  return (
+    <div style={{
+      background: 'white', border: '1px solid #D0D7E3', borderRadius: 10,
+      padding: '14px 18px', boxShadow: '0 1px 3px rgba(0,56,129,0.06)', flex: 1, minWidth: 0,
+    }}>
+      <p style={{ fontSize: 26, fontWeight: 700, color, margin: 0, lineHeight: 1.1 }}>
+        {loading ? '—' : value}
+      </p>
+      <p style={{ fontSize: 12, color: '#4A5568', margin: '4px 0 0' }}>{label}</p>
+    </div>
+  )
+}
+
+function TabLoader() {
+  return (
+    <div style={{ padding: '48px 0', textAlign: 'center', color: '#4A5568', fontSize: 14 }}>
+      Loading…
+    </div>
+  )
+}
+
+function TabError({ msg }: { msg: string }) {
+  return (
+    <div style={{
+      background: '#FFF0F3', border: '1px solid #E4002B40',
+      borderRadius: 8, padding: '12px 16px', color: '#E4002B', fontSize: 13,
+    }}>
+      {msg}
+    </div>
+  )
+}
+
+const TH_STYLE: React.CSSProperties = {
+  textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700,
+  color: 'white', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab: Overview
+// ─────────────────────────────────────────────────────────────────────────────
+
+function OverviewTab({ items, loading, error }: {
+  items: DdcrItem[] | null; loading: boolean; error: string | null
+}) {
+  if (loading) return <TabLoader />
+  if (error) return <TabError msg={error} />
+  if (!items) return null
+
+  // Source system breakdown
+  const sourceBreakdown: Record<string, {
+    total: number; compliant: number; nonCompliant: number; actionRequired: number; overdue: number
+  }> = {}
+
+  for (const item of items) {
+    if (!sourceBreakdown[item.sourceSystem]) {
+      sourceBreakdown[item.sourceSystem] = { total: 0, compliant: 0, nonCompliant: 0, actionRequired: 0, overdue: 0 }
     }
+    const s = sourceBreakdown[item.sourceSystem]
+    s.total++
+    if (item.reportingStatus === 'COMPLIANT') s.compliant++
+    if (item.reportingStatus === 'NON_COMPLIANT') s.nonCompliant++
+    if (item.executionStatus === 'ACTION_REQUIRED') s.actionRequired++
+    if (item.executionStatus === 'OVERDUE') s.overdue++
   }
 
-  useEffect(() => {
-    fetchData()
-  }, [])
-
-  // For this view we focus on PROD-APP-X (first / primary product)
-  const product = data?.products[0] ?? null
+  const actionItems = items
+    .filter(i => i.executionStatus === 'ACTION_REQUIRED' || i.executionStatus === 'OVERDUE')
+    .slice(0, 10)
 
   return (
-    <div className="space-y-6">
-      {/* ── Page header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-2xl font-bold" style={{ color: '#003781' }}>
-              DDCR
-            </h1>
-            <span className="text-lg font-normal text-[#4A5568]">
-              Digital Disclosure &amp; Compliance Reporting
-            </span>
-          </div>
-          <p className="text-sm text-[#4A5568]">
-            Regulatory compliance status for IT App X across all applicable regulations.
-            The evidence gate determines whether compliance can be asserted.
-          </p>
-        </div>
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm border border-[#D0D7E3] text-[#4A5568] hover:text-[#003781] hover:border-[#003781] transition-colors flex-shrink-0 disabled:opacity-50"
-        >
-          <RefreshCw className={clsx('w-4 h-4', loading && 'animate-spin')} />
-          Refresh
-        </button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+      {/* Business rule callout */}
+      <div style={{
+        background: '#EBF5FF', border: '1px solid #C7D2E8', borderRadius: 8,
+        padding: '10px 14px', fontSize: 13, color: '#003781',
+      }}>
+        <strong>Business rule:</strong> Product Hub tells the team what needs to be done. DDCR shows whether it has been done.
       </div>
 
-      {/* ── Loading / error states ───────────────────────────────────────────── */}
-      {loading && !data && (
-        <div className="flex items-center justify-center h-48 text-[#4A5568]">
-          <Loader2 className="w-5 h-5 animate-spin mr-2" />
-          Loading compliance data…
+      {/* Source system breakdown table */}
+      <section>
+        <h2 style={{ fontSize: 15, fontWeight: 700, color: '#003781', margin: '0 0 10px' }}>
+          By Source System
+        </h2>
+        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #D0D7E3', boxShadow: '0 1px 3px rgba(0,56,129,0.06)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#003781' }}>
+                {['Source System', 'Items', 'Compliant', 'Non-Compliant', 'Action Required', 'Overdue'].map(h => (
+                  <th key={h} style={TH_STYLE}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(sourceBreakdown).map(([sys, stats], idx) => (
+                <tr key={sys} style={{ background: idx % 2 === 0 ? 'white' : '#F9FAFB', borderTop: '1px solid #D0D7E3' }}>
+                  <td style={{ padding: '10px 14px' }}><SourceBadge source={sys} /></td>
+                  <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 600, color: '#003781' }}>{stats.total}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 13, color: stats.compliant > 0 ? '#0A7C59' : '#4A5568', fontWeight: stats.compliant > 0 ? 600 : 400 }}>{stats.compliant}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 13, color: stats.nonCompliant > 0 ? '#E4002B' : '#4A5568', fontWeight: stats.nonCompliant > 0 ? 600 : 400 }}>{stats.nonCompliant}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 13, color: stats.actionRequired > 0 ? '#B45309' : '#4A5568', fontWeight: stats.actionRequired > 0 ? 600 : 400 }}>{stats.actionRequired}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 13, color: stats.overdue > 0 ? '#E4002B' : '#4A5568', fontWeight: stats.overdue > 0 ? 600 : 400 }}>{stats.overdue}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+      </section>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-          <span className="font-semibold">Error loading data: </span>{error}
-        </div>
-      )}
+      {/* Action-required items table */}
+      <section>
+        <h2 style={{ fontSize: 15, fontWeight: 700, color: '#003781', margin: '0 0 10px' }}>
+          Items Requiring Action
+          <span style={{ fontSize: 12, fontWeight: 400, color: '#4A5568', marginLeft: 8 }}>Top 10</span>
+        </h2>
 
-      {product && (
-        <>
-          {/* ── Product status card ───────────────────────────────────────── */}
-          <div
-            className="rounded-xl border overflow-hidden"
+        {actionItems.length === 0 ? (
+          <div style={{
+            padding: '24px', textAlign: 'center', color: '#4A5568', fontSize: 13,
+            fontStyle: 'italic', background: '#F9FAFB', borderRadius: 8, border: '1px solid #D0D7E3',
+          }}>
+            No items currently require action.
+          </div>
+        ) : (
+          <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #D0D7E3', boxShadow: '0 1px 3px rgba(0,56,129,0.06)', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+              <thead>
+                <tr style={{ background: '#003781' }}>
+                  {['Entity', 'Framework', 'Requirement', 'Reporting Status', 'Execution', 'Owner', 'Due Date', 'Source', 'Action'].map(h => (
+                    <th key={h} style={TH_STYLE}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {actionItems.map((item, idx) => (
+                  <tr key={item.id} style={{ background: idx % 2 === 0 ? 'white' : '#F9FAFB', borderTop: '1px solid #D0D7E3' }}>
+                    <td style={{ padding: '10px 14px' }}>
+                      <EntityTypeBadge type={item.entityType} />
+                      <p style={{ fontSize: 12, fontWeight: 600, color: '#003781', margin: '3px 0 0' }}>{item.entityName}</p>
+                    </td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: '#4A5568', whiteSpace: 'nowrap' }}>{item.regulatoryFramework}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#4A5568' }}>{item.requirementRef}</span>
+                      {item.requirementTitle && (
+                        <p style={{ fontSize: 11, color: '#6B7280', margin: '2px 0 0', maxWidth: 180 }}>{item.requirementTitle}</p>
+                      )}
+                    </td>
+                    <td style={{ padding: '10px 14px' }}><ReportingPill status={item.reportingStatus} /></td>
+                    <td style={{ padding: '10px 14px' }}><ExecutionPill status={item.executionStatus} /></td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: '#4A5568' }}>{item.actionOwner ?? '—'}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: '#4A5568', whiteSpace: 'nowrap' }}>{formatDate(item.dueDate)}</td>
+                    <td style={{ padding: '10px 14px' }}><SourceBadge source={item.sourceSystem} /></td>
+                    <td style={{ padding: '10px 14px' }}><SourceLink url={item.sourceSystemUrl} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab: My Actions
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ExecFilter = 'ALL' | 'ACTION_REQUIRED' | 'OVERDUE' | 'IN_PROGRESS' | 'COMPLETED'
+
+function MyActionsTab({ items, loading, error }: {
+  items: DdcrItem[] | null; loading: boolean; error: string | null
+}) {
+  const [selectedRole, setSelectedRole] = useState(ROLES[0])
+  const [filter, setFilter] = useState<ExecFilter>('ALL')
+
+  if (loading) return <TabLoader />
+  if (error) return <TabError msg={error} />
+  if (!items) return null
+
+  const roleItems = items.filter(i => i.responsibleRole === selectedRole)
+  const filtered = roleItems.filter(i => filter === 'ALL' || i.executionStatus === filter)
+  const sorted = [...filtered].sort((a, b) =>
+    (EXEC_SORT_ORDER[a.executionStatus] ?? 5) - (EXEC_SORT_ORDER[b.executionStatus] ?? 5)
+  )
+
+  const filterOptions: Array<{ key: ExecFilter; label: string }> = [
+    { key: 'ALL', label: 'All' },
+    { key: 'ACTION_REQUIRED', label: 'Action Required' },
+    { key: 'OVERDUE', label: 'Overdue' },
+    { key: 'IN_PROGRESS', label: 'In Progress' },
+    { key: 'COMPLETED', label: 'Completed' },
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Controls row */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 600, color: '#4A5568', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Role
+          </label>
+          <select
+            value={selectedRole}
+            onChange={e => setSelectedRole(e.target.value)}
             style={{
-              borderColor: product.overallStatus === 'NON_COMPLIANT' ? '#E4002B40' : '#D0D7E3',
-              boxShadow: '0 1px 3px rgba(0,56,129,0.08)',
+              fontSize: 13, padding: '6px 10px', border: '1px solid #D0D7E3', borderRadius: 6,
+              background: 'white', color: '#003781', fontWeight: 600, cursor: 'pointer', outline: 'none',
             }}
           >
-            {/* Status banner */}
-            <div
-              className="px-6 py-4"
+            {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {filterOptions.map(opt => (
+            <button
+              key={opt.key}
+              onClick={() => setFilter(opt.key)}
               style={{
-                backgroundColor: STATUS_CONFIG[product.overallStatus].bg,
-                borderBottom: `1px solid ${STATUS_CONFIG[product.overallStatus].color}30`,
+                fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                border: filter === opt.key ? '1px solid #003781' : '1px solid #D0D7E3',
+                background: filter === opt.key ? '#003781' : 'white',
+                color: filter === opt.key ? 'white' : '#4A5568',
+                fontWeight: filter === opt.key ? 700 : 400,
               }}
             >
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <StatusBadge status={product.overallStatus} size="lg" />
-                  <div>
-                    <p className="font-bold text-lg" style={{ color: '#003781' }}>
-                      {product.productName}
-                    </p>
-                    <p className="text-sm" style={{ color: '#4A5568' }}>
-                      {product.productType.replace('_', ' ')} &middot; {product.criticality} criticality
-                    </p>
-                  </div>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {sorted.length === 0 ? (
+        <div style={{
+          padding: '32px', textAlign: 'center', color: '#4A5568', fontSize: 13,
+          fontStyle: 'italic', background: '#F9FAFB', borderRadius: 8, border: '1px solid #D0D7E3',
+        }}>
+          No items for {selectedRole}{filter !== 'ALL' ? ` — ${filter.replace('_', ' ')}` : ''}.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {sorted.map(item => {
+            const eCfg = execCfg(item.executionStatus)
+            const isMuted = item.executionStatus === 'COMPLETED' || item.executionStatus === 'NO_ACTION_REQUIRED'
+            const borderColor = item.executionStatus === 'OVERDUE' ? '#E4002B40'
+              : item.executionStatus === 'ACTION_REQUIRED' ? '#B4530940'
+              : '#D0D7E3'
+
+            return (
+              <div key={item.id} style={{
+                background: 'white', border: `1px solid ${borderColor}`, borderRadius: 10,
+                padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,56,129,0.06)',
+                opacity: isMuted ? 0.72 : 1,
+              }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+                  <EntityTypeBadge type={item.entityType} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#003781' }}>{item.entityName}</span>
+                  <span style={{ fontSize: 11, color: '#6B7280', marginLeft: 2 }}>{item.tower}</span>
                 </div>
-                <Link
-                  href={`/ddcr/products/${product.productId}`}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
-                  style={{ backgroundColor: '#003781', textDecoration: 'none' }}
-                >
-                  View full detail
-                  <ChevronRight className="w-4 h-4" />
-                </Link>
-              </div>
-            </div>
 
-            {/* Stats row */}
-            <div className="px-6 py-4 bg-white">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <Stat
-                  value={String(product.applicableRequirementCount)}
-                  label="Applicable requirements"
-                />
-                <Stat
-                  value={String(product.nonCompliantRequirementCount)}
-                  label="Non-compliant"
-                  valueColor="#E4002B"
-                />
-                <Stat
-                  value={String(
-                    product.byRequirement.filter(r => r.status === 'COMPLIANT').length
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, background: '#F3F4F6', color: '#4A5568', padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>
+                    {item.regulatoryFramework}
+                  </span>
+                  <span style={{ fontSize: 11, fontFamily: 'monospace', background: '#F4F6F9', color: '#4A5568', padding: '2px 7px', borderRadius: 4 }}>
+                    {item.requirementRef}
+                  </span>
+                  <ReportingPill status={item.reportingStatus} />
+                  <ExecutionPill status={item.executionStatus} />
+                  <SourceBadge source={item.sourceSystem} />
+                </div>
+
+                {item.requirementTitle && (
+                  <p style={{ fontSize: 12, color: '#4A5568', margin: '0 0 6px' }}>{item.requirementTitle}</p>
+                )}
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 12, color: '#4A5568', marginBottom: 8 }}>
+                  {item.actionOwner && (
+                    <span><strong style={{ color: '#003781' }}>Owner:</strong> {item.actionOwner}</span>
                   )}
-                  label="Compliant"
-                  valueColor="#0A7C59"
-                />
-                <Stat
-                  value={String(
-                    product.byRequirement.filter(r => r.status === 'NOT_APPLICABLE').length
+                  {item.dueDate && (
+                    <span>
+                      <strong style={{ color: item.executionStatus === 'OVERDUE' ? '#E4002B' : '#003781' }}>Due:</strong> {formatDate(item.dueDate)}
+                    </span>
                   )}
-                  label="Not applicable"
-                  valueColor="#4A5568"
-                />
+                </div>
+
+                {item.nextAction && (
+                  <div style={{ background: '#F4F6F9', borderRadius: 6, padding: '6px 10px', marginBottom: 6 }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: '#003781', margin: '0 0 2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Next Action
+                    </p>
+                    <p style={{ fontSize: 12, color: '#4A5568', margin: 0 }}>{item.nextAction}</p>
+                  </div>
+                )}
+
+                {item.practicalGuidance && (
+                  <div style={{ background: '#EBF5FF', borderRadius: 6, padding: '6px 10px', marginBottom: 6 }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: '#003781', margin: '0 0 2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Practical Guidance
+                    </p>
+                    <p style={{ fontSize: 12, color: '#4A5568', margin: 0 }}>{item.practicalGuidance}</p>
+                  </div>
+                )}
+
+                <div style={{ marginTop: 8 }}>
+                  <SourceLink url={item.sourceSystemUrl} />
+                </div>
               </div>
-            </div>
-          </div>
-
-          {/* ── Regulation-level status table ─────────────────────────────── */}
-          <section>
-            <h2 className="text-base font-semibold mb-3" style={{ color: '#003781' }}>
-              Regulation-level Status
-            </h2>
-            <div
-              className="rounded-xl overflow-hidden border"
-              style={{ borderColor: '#D0D7E3', boxShadow: '0 1px 3px rgba(0,56,129,0.08)' }}
-            >
-              <table className="w-full">
-                <thead>
-                  <tr style={{ backgroundColor: '#003781' }}>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Regulation
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Status
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Requirements
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Evidence
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {product.byRegulation.map((reg, idx) => (
-                    <tr
-                      key={reg.sourceId ?? idx}
-                      className="border-t"
-                      style={{ borderColor: '#D0D7E3', backgroundColor: idx % 2 === 0 ? 'white' : '#F9FAFB' }}
-                    >
-                      <td className="px-5 py-3.5">
-                        <p className="font-semibold text-sm" style={{ color: '#003781' }}>
-                          {reg.shortCode}
-                        </p>
-                        <p className="text-xs text-[#4A5568] mt-0.5 max-w-xs">{reg.name}</p>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <StatusBadge status={reg.status} />
-                      </td>
-                      <td className="px-5 py-3.5 text-sm text-[#4A5568]">
-                        {reg.requirementCount === 0 && reg.notApplicableCount > 0
-                          ? <span className="text-[#4A5568]">n/a</span>
-                          : <span
-                              style={{
-                                color: reg.nonCompliantCount > 0 ? '#E4002B'
-                                  : reg.compliantCount === reg.requirementCount && reg.requirementCount > 0 ? '#0A7C59'
-                                  : '#4A5568',
-                              }}
-                            >
-                              {requirementSummaryText(reg)}
-                            </span>
-                        }
-                      </td>
-                      <td className="px-5 py-3.5 text-sm">
-                        {reg.evidencePackageId ? (
-                          <span
-                            className="font-mono text-xs px-2 py-0.5 rounded"
-                            style={{ backgroundColor: '#F0FAF6', color: '#0A7C59', border: '1px solid #0A7C5940' }}
-                          >
-                            {reg.evidencePackageId}
-                          </span>
-                        ) : (
-                          <span className="text-[#A0ADB9]">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* ── Requirement-level detail table ────────────────────────────── */}
-          <section>
-            <h2 className="text-base font-semibold mb-3" style={{ color: '#003781' }}>
-              Requirement-level Detail
-            </h2>
-            <div
-              className="rounded-xl overflow-hidden border"
-              style={{ borderColor: '#D0D7E3', boxShadow: '0 1px 3px rgba(0,56,129,0.08)' }}
-            >
-              <table className="w-full">
-                <thead>
-                  <tr style={{ backgroundColor: '#003781' }}>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Requirement
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Article
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Type
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Status
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Evidence
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-white uppercase tracking-wide">
-                      Effective
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {product.byRequirement.map((req, idx) => (
-                    <tr
-                      key={req.requirementId ?? idx}
-                      className="border-t"
-                      style={{ borderColor: '#D0D7E3', backgroundColor: idx % 2 === 0 ? 'white' : '#F9FAFB' }}
-                    >
-                      <td className="px-5 py-3.5">
-                        <p className="font-medium text-sm" style={{ color: '#003781' }}>
-                          {req.title}
-                        </p>
-                        <p className="text-xs text-[#4A5568] mt-0.5">
-                          <span className="font-mono">{req.shortCode}</span>
-                        </p>
-                      </td>
-                      <td className="px-5 py-3.5 text-xs font-mono text-[#4A5568] whitespace-nowrap">
-                        {req.articleRef || '—'}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        {req.obligationType
-                          ? <ObligationTypeBadge type={req.obligationType} />
-                          : <span className="text-[#A0ADB9] text-xs">—</span>
-                        }
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <StatusBadge status={req.status} />
-                      </td>
-                      <td className="px-5 py-3.5 text-sm">
-                        {req.evidencePackageId ? (
-                          <span
-                            className="font-mono text-xs px-2 py-0.5 rounded"
-                            style={{ backgroundColor: '#F0FAF6', color: '#0A7C59', border: '1px solid #0A7C5940' }}
-                          >
-                            {req.evidencePackageId}
-                          </span>
-                        ) : (
-                          <span className="text-[#A0ADB9]">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5 text-xs text-[#4A5568] whitespace-nowrap">
-                        {req.effectiveAt ? formatDate(req.effectiveAt) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* ── Compliance rule box ───────────────────────────────────────── */}
-          <div
-            className="rounded-xl p-5 border"
-            style={{
-              backgroundColor: '#FFF0F3',
-              borderColor: '#E4002B40',
-              boxShadow: '0 1px 3px rgba(0,56,129,0.08)',
-            }}
-          >
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#E4002B' }} />
-              <div>
-                <p className="font-semibold text-sm mb-1" style={{ color: '#E4002B' }}>
-                  Compliance Rule
-                </p>
-                <p className="text-sm" style={{ color: '#4A5568', lineHeight: '1.6' }}>
-                  <strong style={{ color: '#003781' }}>IT App X overall status = COMPLIANT</strong>{' '}
-                  only when <strong>ALL applicable requirements</strong> are COMPLIANT or covered by
-                  an <strong>APPROVED EXCEPTION</strong>. Currently{' '}
-                  <strong style={{ color: '#E4002B' }}>
-                    {product.nonCompliantRequirementCount} mandatory requirement
-                    {product.nonCompliantRequirementCount !== 1 ? 's are' : ' is'} non-compliant
-                  </strong>
-                  {' '}— the product cannot assert COMPLIANT status until all evidence gates pass.
-                </p>
-                <p className="text-xs mt-2 text-[#4A5568]">
-                  Non-compliant requirements: {
-                    product.byRequirement
-                      .filter(r => r.status === 'NON_COMPLIANT')
-                      .map(r => `${r.shortCode} — ${r.title}`)
-                      .join('; ') || 'none'
-                  }
-                </p>
-              </div>
-            </div>
-          </div>
-        </>
+            )
+          })}
+        </div>
       )}
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sub-components
+// Tab: Applications
 // ─────────────────────────────────────────────────────────────────────────────
 
-function Stat({
-  value,
-  label,
-  valueColor = '#003781',
-}: {
-  value: string
-  label: string
-  valueColor?: string
+function ApplicationsTab({ items, loading, error }: {
+  items: DdcrItem[] | null; loading: boolean; error: string | null
 }) {
+  if (loading) return <TabLoader />
+  if (error) return <TabError msg={error} />
+  if (!items) return null
+
+  const appItems = items.filter(i => i.entityType === 'APPLICATION')
+
+  const grouped: Record<string, DdcrItem[]> = {}
+  for (const item of appItems) {
+    if (!grouped[item.entityId]) grouped[item.entityId] = []
+    grouped[item.entityId].push(item)
+  }
+
+  if (Object.keys(grouped).length === 0) {
+    return (
+      <div style={{
+        padding: '32px', textAlign: 'center', color: '#4A5568', fontSize: 13,
+        fontStyle: 'italic', background: '#F9FAFB', borderRadius: 8, border: '1px solid #D0D7E3',
+      }}>
+        No application entities found.
+      </div>
+    )
+  }
+
   return (
-    <div>
-      <p className="text-2xl font-bold" style={{ color: valueColor }}>
-        {value}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {Object.entries(grouped).map(([entityId, entityItems]) => {
+        const worst = worstReportingStatus(entityItems.map(i => i.reportingStatus))
+        const wCfg = repCfg(worst)
+        const appName = entityItems[0].entityName
+        const tower = entityItems[0].tower
+
+        return (
+          <div key={entityId} style={{
+            background: 'white', border: `1px solid ${wCfg.color}40`,
+            borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,56,129,0.06)',
+          }}>
+            <div style={{
+              background: wCfg.bg, padding: '12px 16px', borderBottom: `1px solid ${wCfg.color}30`,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
+            }}>
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#003781', margin: 0 }}>{appName}</p>
+                <p style={{ fontSize: 11, color: '#4A5568', margin: '2px 0 0' }}>{tower} &middot; {entityId}</p>
+              </div>
+              <ReportingPill status={worst} />
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#F9FAFB' }}>
+                  {['Framework', 'Requirement', 'Reporting', 'Execution', 'Source'].map(h => (
+                    <th key={h} style={{
+                      textAlign: 'left', padding: '8px 14px', fontSize: 10, fontWeight: 700,
+                      color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em',
+                      borderBottom: '1px solid #D0D7E3',
+                    }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entityItems.map((item, idx) => (
+                  <tr key={item.id} style={{ background: idx % 2 === 0 ? 'white' : '#FAFAFA', borderTop: idx > 0 ? '1px solid #E5E7EB' : undefined }}>
+                    <td style={{ padding: '8px 14px', fontSize: 11, color: '#4A5568', whiteSpace: 'nowrap' }}>{item.regulatoryFramework}</td>
+                    <td style={{ padding: '8px 14px' }}>
+                      <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#4A5568' }}>{item.requirementRef}</span>
+                      {item.requirementTitle && (
+                        <p style={{ fontSize: 10, color: '#6B7280', margin: '1px 0 0', maxWidth: 200 }}>{item.requirementTitle}</p>
+                      )}
+                    </td>
+                    <td style={{ padding: '8px 14px' }}><ReportingPill status={item.reportingStatus} /></td>
+                    <td style={{ padding: '8px 14px' }}><ExecutionPill status={item.executionStatus} /></td>
+                    <td style={{ padding: '8px 14px' }}><SourceBadge source={item.sourceSystem} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab: Towers (self-contained — fetches its own data)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TowersTab() {
+  const [towers, setTowers] = useState<TowerStat[] | null>(null)
+  const [items, setItems] = useState<DdcrItem[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedTower, setSelectedTower] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchAll = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const [tRes, iRes] = await Promise.all([
+          fetch('/api/ddcr/items/towers'),
+          fetch('/api/ddcr/items'),
+        ])
+        if (!tRes.ok) throw new Error(`Towers HTTP ${tRes.status}`)
+        if (!iRes.ok) throw new Error(`Items HTTP ${iRes.status}`)
+        const [towersData, itemsData] = await Promise.all([tRes.json(), iRes.json()])
+        setTowers(towersData as TowerStat[])
+        setItems(itemsData as DdcrItem[])
+      } catch (e) {
+        setError(String(e))
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchAll()
+  }, [])
+
+  if (loading) return <TabLoader />
+  if (error) return <TabError msg={error} />
+  if (!towers || !items) return null
+
+  const filteredItems = selectedTower ? items.filter(i => i.tower === selectedTower) : items
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* Tower cards grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+        {towers.map(t => {
+          const total = t.total || 1
+          const compliantPct = Math.round((t.compliant / total) * 100)
+          const partialPct = Math.round((t.partiallyCompliant / total) * 100)
+          const nonCompliantPct = Math.max(0, 100 - compliantPct - partialPct)
+          const isSelected = selectedTower === t.tower
+
+          return (
+            <button
+              key={t.tower}
+              onClick={() => setSelectedTower(isSelected ? null : t.tower)}
+              style={{
+                background: 'white', textAlign: 'left', cursor: 'pointer',
+                border: isSelected ? '2px solid #003781' : '1px solid #D0D7E3',
+                borderRadius: 10, padding: '14px 16px',
+                boxShadow: isSelected ? '0 0 0 3px #00378120' : '0 1px 3px rgba(0,56,129,0.06)',
+              }}
+            >
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#003781', margin: '0 0 8px' }}>{t.tower}</p>
+
+              <div style={{ height: 6, borderRadius: 999, overflow: 'hidden', background: '#F3F4F6', display: 'flex', marginBottom: 8 }}>
+                <div style={{ width: `${compliantPct}%`, background: '#0A7C59' }} />
+                <div style={{ width: `${partialPct}%`, background: '#B45309' }} />
+                <div style={{ width: `${nonCompliantPct}%`, background: '#E4002B' }} />
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#4A5568', flexWrap: 'wrap' }}>
+                <span><strong style={{ color: '#003781' }}>{t.total}</strong> total</span>
+                {t.overdue > 0 && <span style={{ color: '#E4002B', fontWeight: 600 }}>{t.overdue} overdue</span>}
+                {t.actionRequired > 0 && <span style={{ color: '#B45309', fontWeight: 600 }}>{t.actionRequired} action req.</span>}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Filtered items table */}
+      <div>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: '#003781', margin: '0 0 10px' }}>
+          {selectedTower ? `Items — ${selectedTower}` : 'All Items'}
+          <span style={{ fontSize: 12, fontWeight: 400, color: '#4A5568', marginLeft: 8 }}>
+            {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+          </span>
+          {selectedTower && (
+            <button
+              onClick={() => setSelectedTower(null)}
+              style={{ marginLeft: 10, fontSize: 11, color: '#003781', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontWeight: 400 }}
+            >
+              Clear filter
+            </button>
+          )}
+        </h3>
+
+        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #D0D7E3', boxShadow: '0 1px 3px rgba(0,56,129,0.06)', overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+            <thead>
+              <tr style={{ background: '#003781' }}>
+                {['Entity', 'Framework', 'Requirement', 'Tower', 'Reporting', 'Execution', 'Owner', 'Source'].map(h => (
+                  <th key={h} style={TH_STYLE}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredItems.slice(0, 50).map((item, idx) => (
+                <tr key={item.id} style={{ background: idx % 2 === 0 ? 'white' : '#F9FAFB', borderTop: '1px solid #D0D7E3' }}>
+                  <td style={{ padding: '10px 14px' }}>
+                    <EntityTypeBadge type={item.entityType} />
+                    <p style={{ fontSize: 12, fontWeight: 600, color: '#003781', margin: '3px 0 0' }}>{item.entityName}</p>
+                  </td>
+                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#4A5568', whiteSpace: 'nowrap' }}>{item.regulatoryFramework}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 11, fontFamily: 'monospace', color: '#4A5568' }}>{item.requirementRef}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#4A5568' }}>{item.tower}</td>
+                  <td style={{ padding: '10px 14px' }}><ReportingPill status={item.reportingStatus} /></td>
+                  <td style={{ padding: '10px 14px' }}><ExecutionPill status={item.executionStatus} /></td>
+                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#4A5568' }}>{item.actionOwner ?? '—'}</td>
+                  <td style={{ padding: '10px 14px' }}><SourceBadge source={item.sourceSystem} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filteredItems.length > 50 && (
+            <div style={{ padding: '10px 14px', background: '#F9FAFB', borderTop: '1px solid #D0D7E3', fontSize: 12, color: '#4A5568', textAlign: 'center' }}>
+              Showing 50 of {filteredItems.length} items
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab: History
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HistoryTab({ items, loading, error }: {
+  items: DdcrItem[] | null; loading: boolean; error: string | null
+}) {
+  if (loading) return <TabLoader />
+  if (error) return <TabError msg={error} />
+  if (!items) return null
+
+  const sorted = [...items]
+    .filter(i => i.lastUpdated)
+    .sort((a, b) => new Date(b.lastUpdated!).getTime() - new Date(a.lastUpdated!).getTime())
+
+  if (sorted.length === 0) {
+    return (
+      <div style={{
+        padding: '32px', textAlign: 'center', color: '#4A5568', fontSize: 13,
+        fontStyle: 'italic', background: '#F9FAFB', borderRadius: 8, border: '1px solid #D0D7E3',
+      }}>
+        No items with update timestamps found.
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>
+        Items sorted by most recently updated. For detailed change history, open the individual item in its source system.
       </p>
-      <p className="text-xs text-[#4A5568] mt-0.5">{label}</p>
+      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #D0D7E3', boxShadow: '0 1px 3px rgba(0,56,129,0.06)', overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+          <thead>
+            <tr style={{ background: '#003781' }}>
+              {['Last Updated', 'Entity', 'Framework', 'Requirement', 'Reporting', 'Execution', 'Source'].map(h => (
+                <th key={h} style={TH_STYLE}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.slice(0, 50).map((item, idx) => (
+              <tr key={item.id} style={{ background: idx % 2 === 0 ? 'white' : '#F9FAFB', borderTop: '1px solid #D0D7E3' }}>
+                <td style={{ padding: '10px 14px', fontSize: 12, color: '#4A5568', whiteSpace: 'nowrap' }}>{formatDate(item.lastUpdated)}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <EntityTypeBadge type={item.entityType} />
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#003781', margin: '3px 0 0' }}>{item.entityName}</p>
+                </td>
+                <td style={{ padding: '10px 14px', fontSize: 12, color: '#4A5568', whiteSpace: 'nowrap' }}>{item.regulatoryFramework}</td>
+                <td style={{ padding: '10px 14px', fontSize: 11, fontFamily: 'monospace', color: '#4A5568' }}>{item.requirementRef}</td>
+                <td style={{ padding: '10px 14px' }}><ReportingPill status={item.reportingStatus} /></td>
+                <td style={{ padding: '10px 14px' }}><ExecutionPill status={item.executionStatus} /></td>
+                <td style={{ padding: '10px 14px' }}><SourceBadge source={item.sourceSystem} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {sorted.length > 50 && (
+          <div style={{ padding: '10px 14px', background: '#F9FAFB', borderTop: '1px solid #D0D7E3', fontSize: 12, color: '#4A5568', textAlign: 'center' }}>
+            Showing 50 of {sorted.length} items
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab: Ask DDCR
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AskDdcrTab({ towerOptions }: { towerOptions: string[] }) {
+  const [question, setQuestion] = useState('')
+  const [towerFilter, setTowerFilter] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [answer, setAnswer] = useState<AskAnswer | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleAsk = async () => {
+    if (!question.trim()) return
+    setLoading(true)
+    setError(null)
+    setAnswer(null)
+    try {
+      const res = await fetch('/api/ddcr/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: question.trim(),
+          context: towerFilter ? { tower: towerFilter } : undefined,
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as AskAnswer
+      setAnswer(data)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAsk()
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 800 }}>
+
+      {/* Disclaimer */}
+      <div style={{
+        background: '#FEF3C7', border: '1px solid #B4530940', borderRadius: 8,
+        padding: '10px 14px', fontSize: 12, color: '#92400E',
+      }}>
+        <strong>Read-only assistant.</strong> Ask DDCR cannot change compliance status, close actions, or write back to source systems.
+        All status updates must originate from Product Hub, ServiceNow, or other connected source systems.
+      </div>
+
+      {/* Context filter */}
+      <div>
+        <label style={{ fontSize: 11, fontWeight: 600, color: '#4A5568', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          Context — Tower (optional)
+        </label>
+        <select
+          value={towerFilter}
+          onChange={e => setTowerFilter(e.target.value)}
+          style={{
+            fontSize: 13, padding: '6px 10px', border: '1px solid #D0D7E3', borderRadius: 6,
+            background: 'white', color: '#003781', cursor: 'pointer', outline: 'none', minWidth: 200,
+          }}
+        >
+          <option value="">All towers</option>
+          {towerOptions.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+
+      {/* Question input */}
+      <div>
+        <label style={{ fontSize: 11, fontWeight: 600, color: '#4A5568', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          Question
+        </label>
+        <textarea
+          value={question}
+          onChange={e => setQuestion(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask about compliance status, requirements, action owners, overdue items…"
+          rows={4}
+          style={{
+            width: '100%', fontSize: 13, padding: '10px 12px', border: '1px solid #D0D7E3',
+            borderRadius: 8, resize: 'vertical', outline: 'none', fontFamily: 'inherit',
+            color: '#003781', boxSizing: 'border-box',
+          }}
+        />
+        <p style={{ fontSize: 11, color: '#A0ADB9', margin: '4px 0 0' }}>Press Ctrl+Enter to submit</p>
+      </div>
+
+      <button
+        onClick={handleAsk}
+        disabled={loading || !question.trim()}
+        style={{
+          alignSelf: 'flex-start', border: 'none', borderRadius: 8,
+          padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: loading || !question.trim() ? 'not-allowed' : 'pointer',
+          background: loading || !question.trim() ? '#D0D7E3' : '#003781',
+          color: 'white',
+        }}
+      >
+        {loading ? 'Thinking…' : 'Ask DDCR'}
+      </button>
+
+      {error && <TabError msg={error} />}
+
+      {answer && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {answer.answer && (
+            <div style={{
+              background: '#F9FAFB', border: '1px solid #D0D7E3', borderRadius: 10,
+              padding: '16px 18px', fontSize: 13, color: '#1C1917', lineHeight: 1.7,
+            }}>
+              {answer.answer}
+            </div>
+          )}
+
+          {answer.sections?.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {answer.sections.map((section, idx) => (
+                <div key={idx} style={{ background: 'white', border: '1px solid #D0D7E3', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ background: '#EBF5FF', padding: '8px 14px', borderBottom: '1px solid #C7D2E8' }}>
+                    <h4 style={{ fontSize: 12, fontWeight: 700, color: '#003781', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      {section.heading}
+                    </h4>
+                  </div>
+                  <div style={{ padding: '12px 14px', fontSize: 13, color: '#4A5568', lineHeight: 1.7 }}>
+                    {section.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {answer.sources?.length > 0 && (
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, color: '#4A5568', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 6px' }}>
+                Sources
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {answer.sources.map((src, idx) => (
+                  <span key={idx} style={{
+                    fontSize: 11, background: '#F3F4F6', border: '1px solid #D0D7E3',
+                    borderRadius: 4, padding: '3px 8px', color: '#4A5568', fontFamily: 'monospace',
+                  }}>
+                    {src}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main page
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Tab = 'overview' | 'my-actions' | 'applications' | 'towers' | 'history' | 'ask'
+
+const TABS: Array<{ id: Tab; label: string }> = [
+  { id: 'overview',     label: 'Overview' },
+  { id: 'my-actions',   label: 'My Actions' },
+  { id: 'applications', label: 'Applications' },
+  { id: 'towers',       label: 'Towers' },
+  { id: 'history',      label: 'History' },
+  { id: 'ask',          label: 'Ask DDCR' },
+]
+
+const ITEM_TABS: Tab[] = ['overview', 'my-actions', 'applications', 'history']
+
+export default function DDCRPage() {
+  const [activeTab, setActiveTab] = useState<Tab>('overview')
+
+  const [summary, setSummary] = useState<SummaryData | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+
+  const [items, setItems] = useState<DdcrItem[] | null>(null)
+  const [itemsLoading, setItemsLoading] = useState(false)
+  const [itemsError, setItemsError] = useState<string | null>(null)
+  const [itemsLoaded, setItemsLoaded] = useState(false)
+
+  // Fetch summary on mount
+  useEffect(() => {
+    const fetchSummary = async () => {
+      try {
+        const res = await fetch('/api/ddcr/items/summary')
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        setSummary(await res.json() as SummaryData)
+      } catch {
+        // Non-fatal — KPI tiles show 0
+      } finally {
+        setSummaryLoading(false)
+      }
+    }
+    fetchSummary()
+  }, [])
+
+  // Lazy-load items when a tab that needs them becomes active
+  useEffect(() => {
+    if (itemsLoaded || !ITEM_TABS.includes(activeTab)) return
+    const fetchItems = async () => {
+      setItemsLoading(true)
+      setItemsError(null)
+      try {
+        const res = await fetch('/api/ddcr/items')
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        setItems(await res.json() as DdcrItem[])
+        setItemsLoaded(true)
+      } catch (e) {
+        setItemsError(String(e))
+      } finally {
+        setItemsLoading(false)
+      }
+    }
+    fetchItems()
+  }, [activeTab, itemsLoaded])
+
+  const towerOptions = Array.from(new Set((items ?? []).map(i => i.tower).filter(Boolean)))
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* Page header */}
+      <div>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#003781', margin: 0 }}>
+          DDCR — Compliance Reporting Cockpit
+        </h1>
+        <p style={{ fontSize: 13, color: '#4A5568', margin: '4px 0 0', lineHeight: 1.6 }}>
+          Federated view across Product Hub, ServiceNow, GRC, LeanIX, Code Scanning and Project Management
+        </p>
+      </div>
+
+      {/* KPI bar */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <KpiTile label="Total Items"      value={summary?.total ?? 0}              loading={summaryLoading} />
+        <KpiTile label="Overdue"          value={summary?.overdueCount ?? 0}       loading={summaryLoading} color="#E4002B" />
+        <KpiTile label="Action Required"  value={summary?.actionRequiredCount ?? 0} loading={summaryLoading} color="#B45309" />
+        <KpiTile label="Compliant"        value={summary?.compliantCount ?? 0}     loading={summaryLoading} color="#0A7C59" />
+      </div>
+
+      {/* Tab bar */}
+      <div style={{ display: 'flex', borderBottom: '2px solid #D0D7E3', overflowX: 'auto' }}>
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              padding: '9px 18px', fontSize: 13, whiteSpace: 'nowrap',
+              fontWeight: activeTab === tab.id ? 700 : 400,
+              color: activeTab === tab.id ? '#003781' : '#6B7280',
+              background: 'none', border: 'none', cursor: 'pointer',
+              borderBottom: activeTab === tab.id ? '2px solid #003781' : '2px solid transparent',
+              marginBottom: -2,
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {activeTab === 'overview' && (
+        <OverviewTab items={items} loading={itemsLoading} error={itemsError} />
+      )}
+      {activeTab === 'my-actions' && (
+        <MyActionsTab items={items} loading={itemsLoading} error={itemsError} />
+      )}
+      {activeTab === 'applications' && (
+        <ApplicationsTab items={items} loading={itemsLoading} error={itemsError} />
+      )}
+      {activeTab === 'towers' && <TowersTab />}
+      {activeTab === 'history' && (
+        <HistoryTab items={items} loading={itemsLoading} error={itemsError} />
+      )}
+      {activeTab === 'ask' && <AskDdcrTab towerOptions={towerOptions} />}
     </div>
   )
 }
