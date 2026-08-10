@@ -108,6 +108,12 @@ export interface AiProvider {
     internalDocuments: Array<{ id: string; title: string; type: string; content: string | null }>,
     eurLexData?: string
   ): Promise<RegulatoryIntelligenceScan>
+  proposeDocumentUpdate(
+    gap: { title: string; description: string; severity: string; gapType: string; aiAnalysis: string | null },
+    requirement: { articleRef: string; title: string; description: string },
+    document: { id: string; title: string; type: string; content: string | null },
+    sourceShortCode: string
+  ): Promise<DocumentUpdateProposal>
 }
 
 export interface AuditContext {
@@ -177,6 +183,16 @@ export interface RemediationSuggestionResult {
   timelineWeeks: number
   blockers: string[]
   summary: string
+  provenance: AiProvenance
+}
+
+export interface DocumentUpdateProposal {
+  documentId: string
+  documentTitle: string
+  currentContent: string
+  proposedContent: string
+  changeSummary: string
+  addedClauses: string[]
   provenance: AiProvenance
 }
 
@@ -264,6 +280,7 @@ class NoAiProvider implements AiProvider {
   async analyzeRegulatoryDelta(): Promise<RegulatoryDeltaAnalysis> { return this.fail() }
   async suggestRemediationSteps(): Promise<RemediationSuggestionResult> { return this.fail() }
   async scanRegulatoryIntelligence(): Promise<RegulatoryIntelligenceScan> { return this.fail() }
+  async proposeDocumentUpdate(): Promise<DocumentUpdateProposal> { return this.fail() }
 }
 
 // ─── Rate-limit helpers ───────────────────────────────────────────────────────
@@ -569,6 +586,48 @@ class OpenAiProvider implements AiProvider {
       timelineWeeks: typeof parsed.timelineWeeks === 'number' ? parsed.timelineWeeks : 4,
       blockers: Array.isArray(parsed.blockers) ? parsed.blockers.map(String) : [],
       summary: String(parsed.summary ?? ''),
+      provenance: this.provenance(model),
+    }
+  }
+
+  async proposeDocumentUpdate(
+    gap: { title: string; description: string; severity: string; gapType: string; aiAnalysis: string | null },
+    requirement: { articleRef: string; title: string; description: string },
+    document: { id: string; title: string; type: string; content: string | null },
+    sourceShortCode: string
+  ): Promise<DocumentUpdateProposal> {
+    const model = MODEL_REASONING
+    const system = `You are a regulatory compliance policy writer at a European financial institution. Given a compliance gap identified against a regulatory requirement and the current text of an internal policy document, rewrite the document so it fully addresses the gap. Preserve all existing content that is still valid — only add or amend what is strictly necessary to achieve compliance. Be precise and concrete. Return valid JSON.`
+    const currentContent = document.content ?? '(No current content — new document required)'
+    const user = `Regulation: ${sourceShortCode}
+Requirement: ${requirement.articleRef} — ${requirement.title}
+Requirement description: ${requirement.description}
+
+Compliance gap:
+- title: ${gap.title}
+- description: ${gap.description}
+- severity: ${gap.severity}
+- type: ${gap.gapType}
+- AI analysis: ${gap.aiAnalysis ?? 'N/A'}
+
+Current document: "${document.title}" (${document.type})
+Current content:
+${currentContent.slice(0, 3000)}
+
+Return a JSON object with exactly these keys:
+- proposedContent: string (the full updated document content, preserving structure where possible)
+- changeSummary: string (2-3 sentences describing what was added/changed and why)
+- addedClauses: array of strings (each clause or section that is new or materially changed)
+
+Return only the JSON object.`
+    const parsed = await this.chat(model, system, user)
+    return {
+      documentId: document.id,
+      documentTitle: document.title,
+      currentContent,
+      proposedContent: String(parsed.proposedContent ?? currentContent),
+      changeSummary: String(parsed.changeSummary ?? ''),
+      addedClauses: Array.isArray(parsed.addedClauses) ? parsed.addedClauses.map(String) : [],
       provenance: this.provenance(model),
     }
   }
