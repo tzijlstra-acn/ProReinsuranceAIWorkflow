@@ -17,6 +17,25 @@ import {
   valueAssumptions,
   demoRuns,
   auditEvents,
+  // Multi-regulation domain model
+  regulatorySources,
+  regulatoryVersions,
+  regulatoryRequirements,
+  internalDocuments,
+  requirementDocumentMappings,
+  complianceGaps,
+  controlChanges,
+  products,
+  productApplicability,
+  productGaps,
+  workProductDefinitions,
+  productWorkProducts,
+  remediationCases,
+  verificationCriteria,
+  verificationResults,
+  evidencePackages,
+  requirementStatusHistory,
+  ddcrReportingRecords,
 } from './schema'
 
 function seed() {
@@ -45,6 +64,24 @@ function seed() {
     DELETE FROM audit_events;
     DELETE FROM value_assumptions;
     DELETE FROM demo_runs;
+    DELETE FROM ddcr_reporting_records;
+    DELETE FROM requirement_status_history;
+    DELETE FROM evidence_packages;
+    DELETE FROM verification_results;
+    DELETE FROM remediation_cases;
+    DELETE FROM verification_criteria;
+    DELETE FROM product_work_products;
+    DELETE FROM work_product_definitions;
+    DELETE FROM product_gaps;
+    DELETE FROM product_applicability;
+    DELETE FROM products;
+    DELETE FROM control_changes;
+    DELETE FROM compliance_gaps;
+    DELETE FROM requirement_document_mappings;
+    DELETE FROM internal_documents;
+    DELETE FROM regulatory_requirements;
+    DELETE FROM regulatory_versions;
+    DELETE FROM regulatory_sources;
   `)
 
   // --- REGULATION SOURCE ---
@@ -479,19 +516,986 @@ Last updated: Q3 2024`,
     metadata: JSON.stringify({ message: 'Database seeded with baseline state' }),
   }).run()
 
+  // ── MULTI-REGULATION DOMAIN MODEL ──────────────────────────────────────────
+
+  const now = new Date().toISOString()
+
+  // ── Regulatory Sources ────────────────────────────────────────────────────
+  const regSources = [
+    {
+      id: 'REG-DORA', shortCode: 'DORA',
+      name: 'Digital Operational Resilience Act',
+      jurisdiction: 'EU', status: 'active',
+      effectiveDate: '2025-01-17',
+      description: 'Regulation (EU) 2022/2554 on digital operational resilience for the financial sector.',
+      eurLexUrl: 'https://eur-lex.europa.eu/eli/reg/2022/2554/oj/eng',
+    },
+    {
+      id: 'REG-NIS2', shortCode: 'NIS2',
+      name: 'Network and Information Security Directive 2',
+      jurisdiction: 'EU', status: 'active',
+      effectiveDate: '2024-10-18',
+      description: 'Directive (EU) 2022/2555 on measures for a high common level of cybersecurity.',
+      eurLexUrl: 'https://eur-lex.europa.eu/eli/dir/2022/2555/oj/eng',
+    },
+    {
+      id: 'REG-GDPR', shortCode: 'GDPR',
+      name: 'General Data Protection Regulation',
+      jurisdiction: 'EU', status: 'active',
+      effectiveDate: '2018-05-25',
+      description: 'Regulation (EU) 2016/679 on the protection of natural persons with regard to personal data.',
+      eurLexUrl: 'https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng',
+    },
+    {
+      id: 'REG-EUAIA', shortCode: 'EU_AI_ACT',
+      name: 'EU Artificial Intelligence Act',
+      jurisdiction: 'EU', status: 'active',
+      effectiveDate: '2026-08-02',
+      description: 'Regulation (EU) 2024/1689 laying down harmonised rules on artificial intelligence.',
+      eurLexUrl: 'https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng',
+    },
+  ]
+  regSources.forEach(s => db.insert(regulatorySources).values({ ...s, createdAt: now }).run())
+
+  // ── Regulatory Versions ───────────────────────────────────────────────────
+  const regVersions = [
+    { id: 'REGV-DORA-2022', sourceId: 'REG-DORA', version: '2022/2554', publishedAt: '2022-12-14', changeType: 'initial', isActive: true },
+    { id: 'REGV-NIS2-2022', sourceId: 'REG-NIS2', version: '2022/2555', publishedAt: '2022-12-27', changeType: 'initial', isActive: true },
+    { id: 'REGV-GDPR-2016', sourceId: 'REG-GDPR', version: '2016/679', publishedAt: '2016-05-04', changeType: 'initial', isActive: true },
+    { id: 'REGV-EUAIA-2024', sourceId: 'REG-EUAIA', version: '2024/1689', publishedAt: '2024-07-12', changeType: 'initial', isActive: true },
+  ]
+  regVersions.forEach(v => db.insert(regulatoryVersions).values({ ...v, createdAt: now }).run())
+
+  // Pending regulatory version — simulates a published amendment awaiting review (is_active = 0)
+  db.insert(regulatoryVersions).values({
+    id: 'RV-DORA-2025-AMEND',
+    sourceId: 'REG-DORA',
+    version: '2025/Q1 Amendment',
+    publishedAt: '2025-03-15T00:00:00.000Z',
+    changeType: 'amendment',
+    changeSummary: 'Amendment to DORA Article 12: enhanced requirements for backup testing frequency (monthly → weekly for critical systems) and introduction of mandatory cross-border backup verification for Tier-1 financial entities.',
+    isActive: false,
+    createdAt: now,
+  }).run()
+
+  // ── Regulatory Requirements ───────────────────────────────────────────────
+  const regRequirements = [
+    {
+      id: 'DORA-BACKUP-001',
+      sourceId: 'REG-DORA', versionId: 'REGV-DORA-2022',
+      articleRef: 'Art. 12(1)(c)',
+      title: 'Backup geographic redundancy',
+      description: 'Financial entities shall ensure backup systems are geographically separate from primary systems to enable restoration after disruptive events affecting the primary region.',
+      obligationType: 'TECHNICAL_CONTROL', obligationLevel: 'MANDATORY',
+      applicabilityScope: JSON.stringify({ productCriticality: ['CRITICAL', 'HIGH'], hostingModel: ['AZURE', 'HYBRID'] }),
+      status: 'active',
+    },
+    {
+      id: 'NIS2-SECURITY-001',
+      sourceId: 'REG-NIS2', versionId: 'REGV-NIS2-2022',
+      articleRef: 'Art. 21(2)(b)',
+      title: 'Incident handling and security process',
+      description: 'Essential entities shall implement policies and procedures on incident handling, including detection, analysis, containment, recovery and post-incident review.',
+      obligationType: 'PROCESS', obligationLevel: 'MANDATORY',
+      applicabilityScope: JSON.stringify({ productCriticality: ['CRITICAL', 'HIGH', 'MEDIUM'] }),
+      status: 'active',
+    },
+    {
+      id: 'GDPR-RECORDS-001',
+      sourceId: 'REG-GDPR', versionId: 'REGV-GDPR-2016',
+      articleRef: 'Art. 30',
+      title: 'Records of processing activities',
+      description: 'Each controller shall maintain a record of processing activities under its responsibility containing specified information about processing operations.',
+      obligationType: 'DOCUMENTATION', obligationLevel: 'MANDATORY',
+      applicabilityScope: JSON.stringify({ processesPersonalData: true }),
+      status: 'active',
+    },
+    {
+      id: 'EUAIA-INVENTORY-001',
+      sourceId: 'REG-EUAIA', versionId: 'REGV-EUAIA-2024',
+      articleRef: 'Art. 49',
+      title: 'Registration of high-risk AI systems',
+      description: 'Providers and deployers of high-risk AI systems shall register those systems in the EU database before placing them on the market or putting them into service.',
+      obligationType: 'GOVERNANCE', obligationLevel: 'MANDATORY',
+      applicabilityScope: JSON.stringify({ productType: ['AI_SYSTEM'], aiRiskCategory: ['HIGH'] }),
+      status: 'active',
+    },
+  ]
+  regRequirements.forEach(r => db.insert(regulatoryRequirements).values({ ...r, createdAt: now }).run())
+
+  // ── Internal Documents ────────────────────────────────────────────────────
+  const internalDocs = [
+    { id: 'IDOC-BR-GUIDELINE', type: 'GUIDELINE', title: 'BR Guideline — Backup & Restore', owner: 'Platform Engineering Lead', status: 'active', version: '3.2', linkedDocumentId: null },
+    { id: 'IDOC-SEC-POLICY', type: 'POLICY', title: 'Information Security Policy', owner: 'CISO', status: 'active', version: '2.1', linkedDocumentId: null },
+    { id: 'IDOC-INC-PROC', type: 'PROCEDURE', title: 'Incident Management Procedure', owner: 'IT Risk & Compliance', status: 'active', version: '1.4', linkedDocumentId: null },
+    { id: 'IDOC-DATA-RECORDS', type: 'STANDARD', title: 'Data Processing Records Standard', owner: 'DPO', status: 'active', version: '1.0', linkedDocumentId: null },
+    { id: 'IDOC-BR-CONTROL', type: 'CONTROL', title: 'Backup Job Configuration Control (BR0039)', owner: 'Platform Engineering Lead', status: 'active', version: '2.1', linkedDocumentId: null },
+  ]
+  internalDocs.forEach(d => db.insert(internalDocuments).values({ ...d, createdAt: now, updatedAt: now }).run())
+
+  // ── Requirement → Document coverage mappings ──────────────────────────────
+  const rdMappings = [
+    { id: 'RDM-001', requirementId: 'DORA-BACKUP-001', documentId: 'IDOC-BR-GUIDELINE', coverageStatus: 'PARTIAL', notes: 'Guideline v3.2 does not address geo-redundancy requirement introduced by DORA Art.12.' },
+    { id: 'RDM-002', requirementId: 'DORA-BACKUP-001', documentId: 'IDOC-BR-CONTROL', coverageStatus: 'NONE', notes: 'Control BR0039 covers basic backup job configuration but not geo-redundancy.' },
+    { id: 'RDM-003', requirementId: 'NIS2-SECURITY-001', documentId: 'IDOC-SEC-POLICY', coverageStatus: 'PARTIAL', notes: 'Security policy does not include structured post-incident review process.' },
+    { id: 'RDM-004', requirementId: 'NIS2-SECURITY-001', documentId: 'IDOC-INC-PROC', coverageStatus: 'PARTIAL', notes: 'Incident procedure lacks formal containment and recovery sections.' },
+    { id: 'RDM-005', requirementId: 'GDPR-RECORDS-001', documentId: 'IDOC-DATA-RECORDS', coverageStatus: 'FULL', notes: 'Data processing records standard fully addresses Art. 30 obligations.' },
+    { id: 'RDM-006', requirementId: 'EUAIA-INVENTORY-001', documentId: 'IDOC-SEC-POLICY', coverageStatus: 'NONE', notes: 'Not applicable — IT App X is not an AI system.' },
+  ]
+  rdMappings.forEach(m => db.insert(requirementDocumentMappings).values(m).run())
+
+  // ── Compliance Gaps ───────────────────────────────────────────────────────
+  const gaps = [
+    {
+      id: 'GAP-001', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA',
+      title: 'Backup geographic redundancy not addressed in internal controls',
+      description: 'DORA Art.12(1)(c) requires geographically separate backup storage. BR Guideline v3.2 and Control BR0039 do not include this requirement. Azure Recovery Services Vault must be configured with GeoRedundant storage (GRZ).',
+      severity: 'HIGH', gapType: 'CONTROL_INSUFFICIENT',
+      status: 'CHANGE_PROPOSED', detectedAt: '2024-11-15',
+      affectedDocumentIds: JSON.stringify(['IDOC-BR-GUIDELINE', 'IDOC-BR-CONTROL']),
+      aiAnalysis: 'Gap confirmed: DORA Art.12(1)(c) is not covered by existing controls. Required remediation: (1) Update BR Guideline v3.2 to v3.3 with geo-redundancy requirement. (2) Create new control BR0039-GR for automated policy verification.',
+    },
+    {
+      id: 'GAP-002', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2',
+      title: 'Incident handling procedure missing structured post-incident review',
+      description: 'NIS2 Art.21(2)(b) requires formal post-incident review documentation. Current Incident Management Procedure v1.4 lacks this section. A structured post-incident review template and approval workflow is required.',
+      severity: 'MEDIUM', gapType: 'PROCESS_GAP',
+      status: 'CHANGE_PROPOSED', detectedAt: '2024-12-03',
+      affectedDocumentIds: JSON.stringify(['IDOC-INC-PROC', 'IDOC-SEC-POLICY']),
+      aiAnalysis: 'Gap confirmed: NIS2 Art.21(2)(b) post-incident review requirement is not covered. Required remediation: (1) Update Incident Management Procedure to include post-incident review section. (2) Add approval workflow evidence requirement.',
+    },
+  ]
+  gaps.forEach(g => db.insert(complianceGaps).values({ ...g, createdAt: now }).run())
+
+  // ── Control Changes ───────────────────────────────────────────────────────
+  const ccChanges = [
+    {
+      id: 'CC-001', gapId: 'GAP-001', requirementId: 'DORA-BACKUP-001',
+      title: 'Introduce Backup Geographic Redundancy Control (BR0039-GR)',
+      description: 'Amend BR Guideline to v3.3 adding geo-redundancy requirement. Create new control BR0039-GR requiring Azure Recovery Services Vault configured with GeoRedundant storage. Automated policy verification via POL-BACKUP-002.',
+      changeType: 'AMEND_CONTROL',
+      status: 'APPROVED',
+      proposedAt: '2024-11-20',
+      approvedAt: '2024-12-01',
+      approvedBy: 'IT Risk & Compliance Lead',
+      publishedAt: '2024-12-05',
+      proposedChanges: JSON.stringify({
+        documentChanges: [{ documentId: 'IDOC-BR-GUIDELINE', changeDescription: 'Add Section 4.3 — Geographic Redundancy requirement' }],
+        configurationChanges: [{ description: 'Azure Recovery Services Vault storage_mode_type = GeoRedundant' }],
+        requiredApprovals: [{ approverRole: 'Platform Engineering Lead' }, { approverRole: 'IT Risk & Compliance Lead' }],
+      }),
+      aiGenerated: false,
+    },
+    {
+      id: 'CC-002', gapId: 'GAP-002', requirementId: 'NIS2-SECURITY-001',
+      title: 'Add post-incident review section to Incident Management Procedure',
+      description: 'Update Incident Management Procedure v1.4 to v1.5 with structured post-incident review template. Define mandatory approval workflow for post-incident review completion.',
+      changeType: 'AMEND_POLICY',
+      status: 'APPROVED',
+      proposedAt: '2024-12-08',
+      approvedAt: '2024-12-15',
+      approvedBy: 'CISO',
+      publishedAt: '2024-12-18',
+      proposedChanges: JSON.stringify({
+        documentChanges: [{ documentId: 'IDOC-INC-PROC', changeDescription: 'Add Section 5 — Post-Incident Review with structured template' }],
+        processChanges: [{ description: 'Mandatory post-incident review approval within 72h of incident closure' }],
+        requiredApprovals: [{ approverRole: 'CISO' }, { approverRole: 'IT Risk & Compliance' }],
+      }),
+      aiGenerated: false,
+    },
+  ]
+  ccChanges.forEach(c => db.insert(controlChanges).values({ ...c, createdAt: now }).run())
+
+  // ── Product: IT App X ─────────────────────────────────────────────────────
+  db.insert(products).values({
+    id: 'PROD-APP-X',
+    name: 'IT App X',
+    type: 'IT_APPLICATION',
+    criticality: 'HIGH',
+    hostingModel: 'AZURE',
+    legalEntity: 'Munich Re Reinsurance Company',
+    owner: 'Claims Processing Platform Team',
+    description: 'Claims processing application running in Azure OneCloud. High criticality — processes reinsurance claims and associated personal data.',
+    status: 'active',
+    applicationId: 'APP-X-001',
+    createdAt: now,
+  }).run()
+
+  // ── Product Applicability ─────────────────────────────────────────────────
+  const applicability = [
+    {
+      id: 'PA-APPX-DORA', productId: 'PROD-APP-X', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA',
+      applicable: true,
+      applicabilityReason: 'IT App X is classified HIGH criticality and hosted in Azure. DORA Art.12 applies to all HIGH and CRITICAL systems in scope of DORA.',
+      assessedAt: '2024-11-10', assessedBy: 'IT Risk & Compliance Lead',
+    },
+    {
+      id: 'PA-APPX-NIS2', productId: 'PROD-APP-X', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2',
+      applicable: true,
+      applicabilityReason: 'Munich Re is classified as an essential entity under NIS2. IT App X as a HIGH criticality application is in scope of NIS2 incident handling requirements.',
+      assessedAt: '2024-11-10', assessedBy: 'IT Risk & Compliance Lead',
+    },
+    {
+      id: 'PA-APPX-GDPR', productId: 'PROD-APP-X', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR',
+      applicable: true,
+      applicabilityReason: 'IT App X processes reinsurance claims which contain personal data of policyholders. GDPR Art.30 records of processing activities are required.',
+      assessedAt: '2024-11-10', assessedBy: 'DPO',
+    },
+    {
+      id: 'PA-APPX-EUAIA', productId: 'PROD-APP-X', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA',
+      applicable: false,
+      applicabilityReason: 'IT App X is a standard claims processing application. It does not use or deploy AI systems classified as high-risk under the EU AI Act. Not applicable.',
+      assessedAt: '2024-11-10', assessedBy: 'AI Governance Lead',
+    },
+  ]
+  applicability.forEach(a => db.insert(productApplicability).values(a).run())
+
+  // ── Product Gaps ──────────────────────────────────────────────────────────
+  const pGaps = [
+    {
+      id: 'PG-001', productId: 'PROD-APP-X', requirementId: 'DORA-BACKUP-001', controlChangeId: 'CC-001',
+      title: 'Azure Recovery Services Vault not configured with geo-redundant storage',
+      description: 'Current vault configuration uses LocallyRedundant storage. GeoRedundant storage required per approved Control Change CC-001.',
+      gapType: 'CONFIGURATION', severity: 'HIGH', status: 'OPEN', detectedAt: '2024-12-06',
+    },
+    {
+      id: 'PG-002', productId: 'PROD-APP-X', requirementId: 'DORA-BACKUP-001', controlChangeId: 'CC-001',
+      title: 'System Design Document does not document geo-redundancy configuration',
+      description: 'SDD v2.4 Section 5 acknowledges the gap but does not describe the GeoRedundant configuration. Must be updated to reflect approved control.',
+      gapType: 'DOCUMENTATION', severity: 'MEDIUM', status: 'OPEN', detectedAt: '2024-12-06',
+    },
+    {
+      id: 'PG-003', productId: 'PROD-APP-X', requirementId: 'NIS2-SECURITY-001', controlChangeId: 'CC-002',
+      title: 'Post-incident review not conducted for recent incidents',
+      description: 'Approved Control Change CC-002 requires post-incident reviews within 72h of closure. No post-incident review work product exists for IT App X.',
+      gapType: 'PROCESS', severity: 'MEDIUM', status: 'OPEN', detectedAt: '2024-12-19',
+    },
+  ]
+  pGaps.forEach(g => db.insert(productGaps).values({ ...g, createdAt: now }).run())
+
+  // ── Remediation Cases ─────────────────────────────────────────────────────
+  const rCases = [
+    {
+      id: 'RC-001',
+      productId: 'PROD-APP-X',
+      requirementId: 'DORA-BACKUP-001',
+      sourceId: 'REG-DORA',
+      title: 'Restore DORA Backup Compliance for IT App X',
+      description: 'Implement geographically separate backup system and document RTO/RPO targets per DORA Article 12 requirements.',
+      status: 'IN_PROGRESS',
+      priority: 'HIGH',
+      assignedTo: 'j.smith@munichre.com',
+      dueDate: '2025-06-30',
+      productGapIds: JSON.stringify(['PG-001', 'PG-002']),
+      createdAt: '2025-03-01T09:00:00.000Z',
+      resolvedAt: null,
+      resolutionNotes: null,
+    },
+    {
+      id: 'RC-002',
+      productId: 'PROD-APP-X',
+      requirementId: 'NIS2-SECURITY-001',
+      sourceId: 'REG-NIS2',
+      title: 'NIS2 Security Measures Gap Remediation for IT App X',
+      description: 'Address NIS2 Article 21 security measures gap: implement network segmentation policy and incident response procedures.',
+      status: 'OPEN',
+      priority: 'MEDIUM',
+      assignedTo: 'l.weber@munichre.com',
+      dueDate: '2025-07-31',
+      productGapIds: JSON.stringify([]),
+      createdAt: '2025-03-15T10:00:00.000Z',
+      resolvedAt: null,
+      resolutionNotes: null,
+    },
+    {
+      id: 'RC-003',
+      productId: 'PROD-APP-Z',
+      requirementId: 'GDPR-RECORDS-001',
+      sourceId: 'REG-GDPR',
+      title: 'GDPR Records of Processing — Customer Portal',
+      description: 'Customer Portal is missing Article 30 records of processing activities. Urgent: data subject requests cannot be fulfilled.',
+      status: 'BLOCKED',
+      priority: 'CRITICAL',
+      assignedTo: 'k.mueller@munichre.com',
+      dueDate: '2025-05-31',
+      productGapIds: JSON.stringify([]),
+      createdAt: '2025-02-15T08:00:00.000Z',
+      resolvedAt: null,
+      resolutionNotes: null,
+    },
+  ]
+  rCases.forEach(c => db.insert(remediationCases).values(c).run())
+
+  // ── Work Product Definitions ──────────────────────────────────────────────
+  const wpDefs = [
+    { id: 'WPD-SDD', name: 'System Design Document', type: 'DOCUMENT', description: 'Architecture and configuration documentation for the product.', requiredForObligationTypes: JSON.stringify(['TECHNICAL_CONTROL', 'DOCUMENTATION']) },
+    { id: 'WPD-OPS-MANUAL', name: 'Operating Manual', type: 'DOCUMENT', description: 'Operational runbook covering deployment, maintenance, backup and recovery procedures.', requiredForObligationTypes: JSON.stringify(['TECHNICAL_CONTROL', 'PROCESS']) },
+    { id: 'WPD-SEC-POLICY', name: 'Security Policy Compliance Evidence', type: 'APPROVAL', description: 'Documented evidence that the product complies with the Information Security Policy.', requiredForObligationTypes: JSON.stringify(['PROCESS', 'GOVERNANCE']) },
+    { id: 'WPD-INCIDENT-REVIEW', name: 'Post-Incident Review Record', type: 'PROCESS', description: 'Structured post-incident review completed within 72h of incident closure.', requiredForObligationTypes: JSON.stringify(['PROCESS']) },
+    { id: 'WPD-DATA-RECORDS', name: 'Data Processing Records', type: 'DOCUMENT', description: 'Article 30 GDPR records of processing activities for the product.', requiredForObligationTypes: JSON.stringify(['DOCUMENTATION']) },
+    { id: 'WPD-IaC', name: 'Infrastructure as Code Change', type: 'REPOSITORY_ARTIFACT', description: 'Terraform or ARM template change implementing a configuration control.', requiredForObligationTypes: JSON.stringify(['TECHNICAL_CONTROL']) },
+  ]
+  wpDefs.forEach(w => db.insert(workProductDefinitions).values(w).run())
+
+  // ── Product Work Products ─────────────────────────────────────────────────
+  const pwps = [
+    { id: 'PWP-001', productId: 'PROD-APP-X', definitionId: 'WPD-SDD', requirementId: 'DORA-BACKUP-001', title: 'System Design Document — IT App X (DORA backup update required)', status: 'NOT_FULFILLED', documentId: 'DOC-SDD-001' },
+    { id: 'PWP-002', productId: 'PROD-APP-X', definitionId: 'WPD-OPS-MANUAL', requirementId: 'DORA-BACKUP-001', title: 'Operating Manual — IT App X (backup section update required)', status: 'NOT_FULFILLED', documentId: 'DOC-OM-001' },
+    { id: 'PWP-003', productId: 'PROD-APP-X', definitionId: 'WPD-INCIDENT-REVIEW', requirementId: 'NIS2-SECURITY-001', title: 'Post-Incident Review Record — IT App X', status: 'NOT_STARTED', documentId: null },
+    { id: 'PWP-004', productId: 'PROD-APP-X', definitionId: 'WPD-DATA-RECORDS', requirementId: 'GDPR-RECORDS-001', title: 'GDPR Art.30 Data Processing Records — IT App X', status: 'FULFILLED', documentId: null },
+    { id: 'PWP-005', productId: 'PROD-APP-X', definitionId: 'WPD-IaC', requirementId: 'DORA-BACKUP-001', title: 'IaC — Azure Recovery Services Vault geo-redundancy configuration', status: 'NOT_STARTED', documentId: null },
+  ]
+  pwps.forEach(p => db.insert(productWorkProducts).values({ ...p, content: null, approvalId: null, createdAt: now, updatedAt: now }).run())
+
+  // ── Verification Criteria ─────────────────────────────────────────────────
+  const vCriteria = [
+    { id: 'VC-DORA-BACKUP-TECH-01', requirementId: 'DORA-BACKUP-001', title: 'Azure Backup policy evaluation — POL-BACKUP-001 (VM Backup Enabled)', description: 'Recovery Services Vault must exist and VM must have active Backup Protected Item.', verifierType: 'TECHNICAL_POLICY', isMandatory: true, expectedValue: JSON.stringify({ status: 'Compliant' }), policyCode: 'POL-BACKUP-001' },
+    { id: 'VC-DORA-BACKUP-TECH-02', requirementId: 'DORA-BACKUP-001', title: 'Azure Backup policy evaluation — POL-BACKUP-002 (Geo-Redundant storage)', description: 'Recovery Services Vault must be configured with GeoRedundant storage (GRZ).', verifierType: 'TECHNICAL_POLICY', isMandatory: true, expectedValue: JSON.stringify({ status: 'Compliant' }), policyCode: 'POL-BACKUP-002' },
+    { id: 'VC-DORA-BACKUP-DOC-01', requirementId: 'DORA-BACKUP-001', title: 'SDD geo-redundancy section approved', description: 'System Design Document must include updated backup section documenting geo-redundant configuration. Must be approved by document owner.', verifierType: 'DOCUMENT_APPROVAL', isMandatory: true, expectedValue: JSON.stringify({ workProductId: 'PWP-001', status: 'FULFILLED' }), policyCode: null },
+    { id: 'VC-NIS2-SEC-PROC-01', requirementId: 'NIS2-SECURITY-001', title: 'Post-incident review record completed and approved', description: 'At least one post-incident review must be completed using the approved template and signed off within 72h of incident closure.', verifierType: 'WORKFLOW_EVIDENCE', isMandatory: true, expectedValue: JSON.stringify({ workProductId: 'PWP-003', status: 'FULFILLED' }), policyCode: null },
+    { id: 'VC-GDPR-RECORDS-01', requirementId: 'GDPR-RECORDS-001', title: 'GDPR Art.30 records complete and current', description: 'Data processing records for IT App X must be complete and reviewed within the last 12 months.', verifierType: 'DOCUMENT_APPROVAL', isMandatory: true, expectedValue: JSON.stringify({ workProductId: 'PWP-004', status: 'FULFILLED' }), policyCode: null },
+  ]
+  vCriteria.forEach(c => db.insert(verificationCriteria).values(c).run())
+
+  // ── Verification Results — GDPR already passes ────────────────────────────
+  db.insert(verificationResults).values({
+    id: 'VR-GDPR-001',
+    criterionId: 'VC-GDPR-RECORDS-01',
+    productId: 'PROD-APP-X',
+    requirementId: 'GDPR-RECORDS-001',
+    remediationCaseId: null,
+    status: 'PASSED',
+    observedValue: JSON.stringify({ workProductStatus: 'FULFILLED', lastReviewedAt: '2024-10-01' }),
+    evidenceReference: 'PWP-004',
+    verifiedAt: '2024-10-15',
+    notes: 'GDPR Art.30 records reviewed and confirmed complete by DPO.',
+  }).run()
+
+  // ── Evidence Packages — GDPR complete ────────────────────────────────────
+  db.insert(evidencePackages).values({
+    id: 'EP-GDPR-001',
+    productId: 'PROD-APP-X',
+    requirementId: 'GDPR-RECORDS-001',
+    remediationCaseId: null,
+    status: 'COMPLETE',
+    verificationResultIds: JSON.stringify(['VR-GDPR-001']),
+    evidenceArtifactIds: JSON.stringify([]),
+    assembledAt: '2024-10-15',
+    approvedAt: '2024-10-16',
+    approvedBy: 'DPO',
+    createdAt: now,
+  }).run()
+
+  // ── Requirement Status History ────────────────────────────────────────────
+  const statusHistory = [
+    // DORA — Non-compliant (baseline gap identified)
+    {
+      id: randomUUID(), productId: 'PROD-APP-X', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA',
+      status: 'NON_COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'Compliance gap GAP-001 identified: geo-redundancy not implemented. Control Change CC-001 approved and published.',
+      controlChangeId: 'CC-001', remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2024-12-05', transitionedBy: 'IT Risk & Compliance Lead', correlationId: 'GAP-001',
+    },
+    // NIS2 — Non-compliant (baseline gap identified)
+    {
+      id: randomUUID(), productId: 'PROD-APP-X', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2',
+      status: 'NON_COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'Compliance gap GAP-002 identified: post-incident review process not in place. Control Change CC-002 approved and published.',
+      controlChangeId: 'CC-002', remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2024-12-18', transitionedBy: 'IT Risk & Compliance Lead', correlationId: 'GAP-002',
+    },
+    // GDPR — Compliant (records already in order)
+    {
+      id: randomUUID(), productId: 'PROD-APP-X', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR',
+      status: 'COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'GDPR Art.30 records confirmed complete and current by DPO. Evidence package EP-GDPR-001 approved.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: 'EP-GDPR-001',
+      transitionedAt: '2024-10-16', transitionedBy: 'DPO', correlationId: 'EP-GDPR-001',
+    },
+    // EU AI Act — Not applicable
+    {
+      id: randomUUID(), productId: 'PROD-APP-X', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA',
+      status: 'NOT_APPLICABLE', previousStatus: 'NOT_ASSESSED',
+      reason: 'IT App X is not an AI system. EU AI Act high-risk AI system registration requirement is not applicable.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2024-11-10', transitionedBy: 'AI Governance Lead', correlationId: 'PA-APPX-EUAIA',
+    },
+  ]
+  statusHistory.forEach(s => db.insert(requirementStatusHistory).values(s).run())
+
+  // ── DDCR Reporting Records — current snapshot ─────────────────────────────
+  const ddcrRecords = [
+    // Requirement-level
+    { id: randomUUID(), productId: 'PROD-APP-X', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA', status: 'NON_COMPLIANT', effectiveAt: '2024-12-05', evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'Geo-redundancy gap identified. Remediation in progress.' },
+    { id: randomUUID(), productId: 'PROD-APP-X', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2', status: 'NON_COMPLIANT', effectiveAt: '2024-12-18', evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'Post-incident review process gap identified. Remediation in progress.' },
+    { id: randomUUID(), productId: 'PROD-APP-X', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR', status: 'COMPLIANT', effectiveAt: '2024-10-16', evidencePackageId: 'EP-GDPR-001', reportedAt: now, reportedBy: 'DPO', notes: 'Art.30 records confirmed complete.' },
+    { id: randomUUID(), productId: 'PROD-APP-X', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA', status: 'NOT_APPLICABLE', effectiveAt: '2024-11-10', evidencePackageId: null, reportedAt: now, reportedBy: 'AI Governance Lead', notes: 'IT App X is not an AI system.' },
+    // Regulation-level aggregates
+    { id: randomUUID(), productId: 'PROD-APP-X', requirementId: null, sourceId: 'REG-DORA', status: 'NON_COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'DORA overall: 1 of 1 applicable requirement non-compliant.' },
+    { id: randomUUID(), productId: 'PROD-APP-X', requirementId: null, sourceId: 'REG-NIS2', status: 'NON_COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'NIS2 overall: 1 of 1 applicable requirement non-compliant.' },
+    { id: randomUUID(), productId: 'PROD-APP-X', requirementId: null, sourceId: 'REG-GDPR', status: 'COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'GDPR overall: 1 of 1 applicable requirement compliant.' },
+    { id: randomUUID(), productId: 'PROD-APP-X', requirementId: null, sourceId: 'REG-EUAIA', status: 'NOT_APPLICABLE', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'EU AI Act: not applicable to this product.' },
+    // Product-level aggregate (NON_COMPLIANT because DORA + NIS2 open)
+    { id: randomUUID(), productId: 'PROD-APP-X', requirementId: null, sourceId: null, status: 'NON_COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'IT App X overall: 2 of 3 applicable requirements non-compliant.' },
+  ]
+  ddcrRecords.forEach(r => db.insert(ddcrReportingRecords).values(r).run())
+
+  // ── NEW PRODUCTS: Y, Z, W, V ─────────────────────────────────────────────
+
+  // ── Applications (new) ───────────────────────────────────────────────────
+  db.insert(applications).values({
+    id: 'APP-Y-001',
+    name: 'Trading Platform',
+    businessService: 'Risk & Trading',
+    criticality: 'Critical',
+    environment: 'Azure OneCloud',
+    owner: 'Risk & Trading IT',
+  }).run()
+
+  db.insert(applications).values({
+    id: 'APP-Z-001',
+    name: 'Customer Portal',
+    businessService: 'Digital Channels',
+    criticality: 'High',
+    environment: 'Azure OneCloud',
+    owner: 'Digital Channels IT',
+  }).run()
+
+  db.insert(applications).values({
+    id: 'APP-W-001',
+    name: 'Internal Analytics',
+    businessService: 'Data Science',
+    criticality: 'Medium',
+    environment: 'On-Premise',
+    owner: 'Data Science',
+  }).run()
+
+  db.insert(applications).values({
+    id: 'APP-V-001',
+    name: 'AI Underwriting Engine',
+    businessService: 'Underwriting',
+    criticality: 'High',
+    environment: 'Hybrid',
+    owner: 'AI Centre of Excellence',
+  }).run()
+
+  // ── Portfolio Apps (new) ──────────────────────────────────────────────────
+  db.insert(portfolioApps).values({
+    id: 'PA-APP-Y-001',
+    appId: 'APP-Y-001',
+    name: 'Trading Platform',
+    criticality: 'Critical',
+    backupCompliant: true,
+    geoRedundant: true,
+    exceptions: '[]',
+  }).run()
+
+  db.insert(portfolioApps).values({
+    id: 'PA-APP-Z-001',
+    appId: 'APP-Z-001',
+    name: 'Customer Portal',
+    criticality: 'High',
+    backupCompliant: false,
+    geoRedundant: false,
+    exceptions: JSON.stringify([{ type: 'risk-acceptance', description: 'Backup not configured — remediation pending', raisedDate: '2025-03-01' }]),
+  }).run()
+
+  db.insert(portfolioApps).values({
+    id: 'PA-APP-W-001',
+    appId: 'APP-W-001',
+    name: 'Internal Analytics',
+    criticality: 'Medium',
+    backupCompliant: false,
+    geoRedundant: false,
+    exceptions: '[]',
+  }).run()
+
+  db.insert(portfolioApps).values({
+    id: 'PA-APP-V-001',
+    appId: 'APP-V-001',
+    name: 'AI Underwriting Engine',
+    criticality: 'High',
+    backupCompliant: true,
+    geoRedundant: true,
+    exceptions: '[]',
+  }).run()
+
+  // ── Products (new) ────────────────────────────────────────────────────────
+  db.insert(products).values({
+    id: 'PROD-APP-Y',
+    name: 'Trading Platform',
+    type: 'IT_APPLICATION',
+    criticality: 'CRITICAL',
+    hostingModel: 'AZURE',
+    legalEntity: 'Munich Re Reinsurance Company',
+    owner: 'Risk & Trading IT',
+    description: 'Core trading platform for risk and trading operations. Critical system processing significant transaction volumes across all trading desks.',
+    status: 'active',
+    applicationId: 'APP-Y-001',
+    createdAt: now,
+  }).run()
+
+  db.insert(products).values({
+    id: 'PROD-APP-Z',
+    name: 'Customer Portal',
+    type: 'IT_APPLICATION',
+    criticality: 'HIGH',
+    hostingModel: 'AZURE',
+    legalEntity: 'Munich Re Reinsurance Company',
+    owner: 'Digital Channels IT',
+    description: 'Customer-facing portal for policy management and claims submission. Processes personal data of policyholders and claimants.',
+    status: 'active',
+    applicationId: 'APP-Z-001',
+    createdAt: now,
+  }).run()
+
+  db.insert(products).values({
+    id: 'PROD-APP-W',
+    name: 'Internal Analytics',
+    type: 'IT_APPLICATION',
+    criticality: 'MEDIUM',
+    hostingModel: 'ON_PREMISE',
+    legalEntity: 'Munich Re Reinsurance Company',
+    owner: 'Data Science',
+    description: 'Internal analytics platform for business intelligence and data science workloads. Recently onboarded — compliance assessment not yet started.',
+    status: 'active',
+    applicationId: 'APP-W-001',
+    createdAt: now,
+  }).run()
+
+  db.insert(products).values({
+    id: 'PROD-APP-V',
+    name: 'AI Underwriting Engine',
+    type: 'AI_APPLICATION',
+    criticality: 'HIGH',
+    hostingModel: 'HYBRID',
+    legalEntity: 'Munich Re Reinsurance Company',
+    owner: 'AI Centre of Excellence',
+    description: 'AI-powered underwriting engine using machine learning for risk assessment decisions. Classified as a high-risk AI system under EU AI Act Annex III.',
+    status: 'active',
+    applicationId: 'APP-V-001',
+    createdAt: now,
+  }).run()
+
+  // ── Product Applicability — PROD-APP-Y (Trading Platform) ────────────────
+  const applicabilityY = [
+    {
+      id: 'PA-APPY-DORA', productId: 'PROD-APP-Y', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA',
+      applicable: true,
+      applicabilityReason: 'Trading Platform is classified CRITICAL and hosted in Azure. DORA Art.12 applies to all HIGH and CRITICAL systems in scope of DORA.',
+      assessedAt: '2025-01-10', assessedBy: 'IT Risk & Compliance Lead',
+    },
+    {
+      id: 'PA-APPY-NIS2', productId: 'PROD-APP-Y', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2',
+      applicable: true,
+      applicabilityReason: 'Munich Re is classified as an essential entity under NIS2. Trading Platform as a CRITICAL application is in scope of NIS2 incident handling requirements.',
+      assessedAt: '2025-01-10', assessedBy: 'IT Risk & Compliance Lead',
+    },
+    {
+      id: 'PA-APPY-GDPR', productId: 'PROD-APP-Y', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR',
+      applicable: true,
+      applicabilityReason: 'Trading Platform processes personal data of traders and counterparties. GDPR Art.30 records of processing activities are required.',
+      assessedAt: '2025-01-10', assessedBy: 'DPO',
+    },
+    {
+      id: 'PA-APPY-EUAIA', productId: 'PROD-APP-Y', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA',
+      applicable: false,
+      applicabilityReason: 'Trading Platform is a standard trading system. It does not deploy high-risk AI systems under the EU AI Act. Not applicable.',
+      assessedAt: '2025-01-10', assessedBy: 'AI Governance Lead',
+    },
+  ]
+  applicabilityY.forEach(a => db.insert(productApplicability).values(a).run())
+
+  // ── Product Applicability — PROD-APP-Z (Customer Portal) ─────────────────
+  const applicabilityZ = [
+    {
+      id: 'PA-APPZ-DORA', productId: 'PROD-APP-Z', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA',
+      applicable: true,
+      applicabilityReason: 'Customer Portal is classified HIGH and hosted in Azure. DORA Art.12 backup geo-redundancy requirements apply.',
+      assessedAt: '2025-02-05', assessedBy: 'IT Risk & Compliance Lead',
+    },
+    {
+      id: 'PA-APPZ-NIS2', productId: 'PROD-APP-Z', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2',
+      applicable: true,
+      applicabilityReason: 'Customer Portal handles sensitive policyholder data and is HIGH criticality. NIS2 incident handling requirements apply.',
+      assessedAt: '2025-02-05', assessedBy: 'IT Risk & Compliance Lead',
+    },
+    {
+      id: 'PA-APPZ-GDPR', productId: 'PROD-APP-Z', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR',
+      applicable: true,
+      applicabilityReason: 'Customer Portal is the primary system processing policyholder personal data. GDPR Art.30 records of processing activities are required.',
+      assessedAt: '2025-02-05', assessedBy: 'DPO',
+    },
+    {
+      id: 'PA-APPZ-EUAIA', productId: 'PROD-APP-Z', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA',
+      applicable: false,
+      applicabilityReason: 'Customer Portal does not deploy AI systems. EU AI Act high-risk AI system registration requirement is not applicable.',
+      assessedAt: '2025-02-05', assessedBy: 'AI Governance Lead',
+    },
+  ]
+  applicabilityZ.forEach(a => db.insert(productApplicability).values(a).run())
+
+  // ── Product Applicability — PROD-APP-V (AI Underwriting Engine) ───────────
+  const applicabilityV = [
+    {
+      id: 'PA-APPV-DORA', productId: 'PROD-APP-V', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA',
+      applicable: true,
+      applicabilityReason: 'AI Underwriting Engine is classified HIGH in a HYBRID environment. DORA Art.12 backup geo-redundancy requirements apply.',
+      assessedAt: '2025-03-15', assessedBy: 'IT Risk & Compliance Lead',
+    },
+    {
+      id: 'PA-APPV-NIS2', productId: 'PROD-APP-V', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2',
+      applicable: true,
+      applicabilityReason: 'AI Underwriting Engine is HIGH criticality and underpins core underwriting decisions. NIS2 incident handling requirements apply.',
+      assessedAt: '2025-03-15', assessedBy: 'IT Risk & Compliance Lead',
+    },
+    {
+      id: 'PA-APPV-GDPR', productId: 'PROD-APP-V', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR',
+      applicable: true,
+      applicabilityReason: 'AI Underwriting Engine processes applicant personal data for risk assessment. GDPR Art.30 records of processing activities are required, including documentation of automated decision-making.',
+      assessedAt: '2025-03-15', assessedBy: 'DPO',
+    },
+    {
+      id: 'PA-APPV-EUAIA', productId: 'PROD-APP-V', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA',
+      applicable: true,
+      applicabilityReason: 'AI Underwriting Engine is a high-risk AI system under EU AI Act Annex III (insurance underwriting). Registration in the EU AI database is required before deployment.',
+      assessedAt: '2025-03-15', assessedBy: 'AI Governance Lead',
+    },
+  ]
+  applicabilityV.forEach(a => db.insert(productApplicability).values(a).run())
+
+  // ── Product Gaps — PROD-APP-Z (Customer Portal) ───────────────────────────
+  db.insert(productGaps).values({
+    id: 'PG-Z-001', productId: 'PROD-APP-Z', requirementId: 'NIS2-SECURITY-001', controlChangeId: 'CC-002',
+    title: 'Incident handling process not formally documented for Customer Portal',
+    description: 'NIS2 Art.21(2)(b) requires formal incident handling policies and procedures. Customer Portal lacks a documented system-specific incident response procedure, including detection, containment, recovery and post-incident review sections.',
+    gapType: 'PROCESS', severity: 'HIGH', status: 'OPEN', detectedAt: '2025-02-10',
+    createdAt: now,
+  }).run()
+
+  db.insert(productGaps).values({
+    id: 'PG-Z-002', productId: 'PROD-APP-Z', requirementId: 'GDPR-RECORDS-001', controlChangeId: null,
+    title: 'GDPR Art.30 records of processing activities outdated for Customer Portal',
+    description: 'Customer Portal processes policyholder personal data but the Art.30 records have not been reviewed or updated in over 18 months. Records are incomplete and do not reflect current processing activities.',
+    gapType: 'DOCUMENTATION', severity: 'MEDIUM', status: 'OPEN', detectedAt: '2025-02-10',
+    createdAt: now,
+  }).run()
+
+  // ── Product Gaps — PROD-APP-V (AI Underwriting Engine) ───────────────────
+  db.insert(productGaps).values({
+    id: 'PG-V-001', productId: 'PROD-APP-V', requirementId: 'EUAIA-INVENTORY-001', controlChangeId: null,
+    title: 'AI Underwriting Engine not registered in EU AI Act database',
+    description: 'EU AI Act Art.49 requires high-risk AI systems to be registered in the EU AI database before being placed on the market or put into service. AI Underwriting Engine is already in production but registration has not been completed.',
+    gapType: 'GOVERNANCE', severity: 'HIGH', status: 'OPEN', detectedAt: '2025-04-01',
+    createdAt: now,
+  }).run()
+
+  // ── Verification Results (for new evidence packages) ──────────────────────
+  db.insert(verificationResults).values({
+    id: 'VR-Y-DORA',
+    criterionId: 'VC-DORA-BACKUP-TECH-01',
+    productId: 'PROD-APP-Y',
+    requirementId: 'DORA-BACKUP-001',
+    remediationCaseId: null,
+    status: 'PASSED',
+    observedValue: JSON.stringify({ backupEnabled: true, geoRedundant: true, storageRedundancy: 'GeoRedundant', evaluatedAt: '2025-01-20' }),
+    evidenceReference: 'EP-Y-DORA',
+    verifiedAt: '2025-01-20',
+    notes: 'DORA Art.12 backup geo-redundancy verified via automated policy evaluation. Azure Recovery Services Vault confirmed with GeoRedundant storage.',
+  }).run()
+
+  db.insert(verificationResults).values({
+    id: 'VR-Y-NIS2',
+    criterionId: 'VC-NIS2-SEC-PROC-01',
+    productId: 'PROD-APP-Y',
+    requirementId: 'NIS2-SECURITY-001',
+    remediationCaseId: null,
+    status: 'PASSED',
+    observedValue: JSON.stringify({ postIncidentReviewComplete: true, reviewedAt: '2025-01-15', procedureVersion: '2.1' }),
+    evidenceReference: 'EP-Y-NIS2',
+    verifiedAt: '2025-01-20',
+    notes: 'NIS2 incident handling process verified. Post-incident review record confirmed complete and approved within required 72h window.',
+  }).run()
+
+  db.insert(verificationResults).values({
+    id: 'VR-Y-GDPR',
+    criterionId: 'VC-GDPR-RECORDS-01',
+    productId: 'PROD-APP-Y',
+    requirementId: 'GDPR-RECORDS-001',
+    remediationCaseId: null,
+    status: 'PASSED',
+    observedValue: JSON.stringify({ workProductStatus: 'FULFILLED', lastReviewedAt: '2025-01-10' }),
+    evidenceReference: 'EP-Y-GDPR',
+    verifiedAt: '2025-01-20',
+    notes: 'GDPR Art.30 records reviewed and confirmed complete for Trading Platform by DPO.',
+  }).run()
+
+  db.insert(verificationResults).values({
+    id: 'VR-Z-DORA',
+    criterionId: 'VC-DORA-BACKUP-TECH-01',
+    productId: 'PROD-APP-Z',
+    requirementId: 'DORA-BACKUP-001',
+    remediationCaseId: null,
+    status: 'PASSED',
+    observedValue: JSON.stringify({ backupEnabled: true, geoRedundant: true, storageRedundancy: 'GeoRedundant', evaluatedAt: '2025-02-20' }),
+    evidenceReference: 'EP-Z-DORA',
+    verifiedAt: '2025-02-20',
+    notes: 'DORA backup geo-redundancy verified for Customer Portal. Azure Recovery Services Vault configured with GeoRedundant storage.',
+  }).run()
+
+  // ── Evidence Packages (new) ───────────────────────────────────────────────
+  db.insert(evidencePackages).values({
+    id: 'EP-Y-DORA',
+    productId: 'PROD-APP-Y',
+    requirementId: 'DORA-BACKUP-001',
+    remediationCaseId: null,
+    status: 'COMPLETE',
+    verificationResultIds: JSON.stringify(['VR-Y-DORA']),
+    evidenceArtifactIds: JSON.stringify([]),
+    assembledAt: '2025-01-20',
+    approvedAt: '2025-01-21',
+    approvedBy: 'IT Risk & Compliance Lead',
+    createdAt: now,
+  }).run()
+
+  db.insert(evidencePackages).values({
+    id: 'EP-Y-NIS2',
+    productId: 'PROD-APP-Y',
+    requirementId: 'NIS2-SECURITY-001',
+    remediationCaseId: null,
+    status: 'COMPLETE',
+    verificationResultIds: JSON.stringify(['VR-Y-NIS2']),
+    evidenceArtifactIds: JSON.stringify([]),
+    assembledAt: '2025-01-20',
+    approvedAt: '2025-01-21',
+    approvedBy: 'IT Risk & Compliance Lead',
+    createdAt: now,
+  }).run()
+
+  db.insert(evidencePackages).values({
+    id: 'EP-Y-GDPR',
+    productId: 'PROD-APP-Y',
+    requirementId: 'GDPR-RECORDS-001',
+    remediationCaseId: null,
+    status: 'COMPLETE',
+    verificationResultIds: JSON.stringify(['VR-Y-GDPR']),
+    evidenceArtifactIds: JSON.stringify([]),
+    assembledAt: '2025-01-20',
+    approvedAt: '2025-01-21',
+    approvedBy: 'DPO',
+    createdAt: now,
+  }).run()
+
+  db.insert(evidencePackages).values({
+    id: 'EP-Z-DORA',
+    productId: 'PROD-APP-Z',
+    requirementId: 'DORA-BACKUP-001',
+    remediationCaseId: null,
+    status: 'COMPLETE',
+    verificationResultIds: JSON.stringify(['VR-Z-DORA']),
+    evidenceArtifactIds: JSON.stringify([]),
+    assembledAt: '2025-02-20',
+    approvedAt: '2025-02-21',
+    approvedBy: 'IT Risk & Compliance Lead',
+    createdAt: now,
+  }).run()
+
+  // ── Requirement Status History — PROD-APP-Y (Trading Platform, all compliant) ──
+  const statusHistoryY = [
+    {
+      id: 'RSH-Y-DORA', productId: 'PROD-APP-Y', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA',
+      status: 'COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'DORA Art.12 backup geo-redundancy verified for Trading Platform. Evidence package EP-Y-DORA approved.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: 'EP-Y-DORA',
+      transitionedAt: '2025-01-21', transitionedBy: 'IT Risk & Compliance Lead', correlationId: 'EP-Y-DORA',
+    },
+    {
+      id: 'RSH-Y-NIS2', productId: 'PROD-APP-Y', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2',
+      status: 'COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'NIS2 incident handling process verified for Trading Platform. Evidence package EP-Y-NIS2 approved.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: 'EP-Y-NIS2',
+      transitionedAt: '2025-01-21', transitionedBy: 'IT Risk & Compliance Lead', correlationId: 'EP-Y-NIS2',
+    },
+    {
+      id: 'RSH-Y-GDPR', productId: 'PROD-APP-Y', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR',
+      status: 'COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'GDPR Art.30 records confirmed complete and current by DPO. Evidence package EP-Y-GDPR approved.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: 'EP-Y-GDPR',
+      transitionedAt: '2025-01-21', transitionedBy: 'DPO', correlationId: 'EP-Y-GDPR',
+    },
+    {
+      id: 'RSH-Y-EUAIA', productId: 'PROD-APP-Y', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA',
+      status: 'NOT_APPLICABLE', previousStatus: 'NOT_ASSESSED',
+      reason: 'Trading Platform is not an AI system. EU AI Act high-risk AI registration requirement is not applicable.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2025-01-10', transitionedBy: 'AI Governance Lead', correlationId: 'PA-APPY-EUAIA',
+    },
+  ]
+  statusHistoryY.forEach(s => db.insert(requirementStatusHistory).values(s).run())
+
+  // ── Requirement Status History — PROD-APP-Z (Customer Portal, mixed) ──────
+  const statusHistoryZ = [
+    {
+      id: 'RSH-Z-DORA', productId: 'PROD-APP-Z', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA',
+      status: 'COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'DORA Art.12 backup geo-redundancy verified for Customer Portal. Evidence package EP-Z-DORA approved.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: 'EP-Z-DORA',
+      transitionedAt: '2025-02-21', transitionedBy: 'IT Risk & Compliance Lead', correlationId: 'EP-Z-DORA',
+    },
+    {
+      id: 'RSH-Z-NIS2', productId: 'PROD-APP-Z', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2',
+      status: 'NON_COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'Incident handling process gap identified. Customer Portal lacks a documented system-specific incident response procedure.',
+      controlChangeId: 'CC-002', remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2025-02-10', transitionedBy: 'IT Risk & Compliance Lead', correlationId: 'PG-Z-001',
+    },
+    {
+      id: 'RSH-Z-GDPR', productId: 'PROD-APP-Z', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR',
+      status: 'NON_COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'GDPR Art.30 records not maintained. Records not reviewed or updated in over 18 months and are no longer current.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2025-02-10', transitionedBy: 'DPO', correlationId: 'PG-Z-002',
+    },
+    {
+      id: 'RSH-Z-EUAIA', productId: 'PROD-APP-Z', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA',
+      status: 'NOT_APPLICABLE', previousStatus: 'NOT_ASSESSED',
+      reason: 'Customer Portal does not deploy AI systems. EU AI Act high-risk AI registration requirement is not applicable.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2025-02-05', transitionedBy: 'AI Governance Lead', correlationId: 'PA-APPZ-EUAIA',
+    },
+  ]
+  statusHistoryZ.forEach(s => db.insert(requirementStatusHistory).values(s).run())
+
+  // ── Requirement Status History — PROD-APP-V (AI product, EU AI Act non-compliant) ──
+  const statusHistoryV = [
+    {
+      id: 'RSH-V-DORA', productId: 'PROD-APP-V', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA',
+      status: 'COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'DORA Art.12 backup geo-redundancy verified for AI Underwriting Engine. Hybrid deployment uses geo-redundant storage in both cloud and on-premise components.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2025-03-20', transitionedBy: 'IT Risk & Compliance Lead', correlationId: 'PA-APPV-DORA',
+    },
+    {
+      id: 'RSH-V-NIS2', productId: 'PROD-APP-V', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2',
+      status: 'COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'NIS2 incident handling process verified for AI Underwriting Engine. Incident response procedures documented, tested and approved.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2025-03-20', transitionedBy: 'IT Risk & Compliance Lead', correlationId: 'PA-APPV-NIS2',
+    },
+    {
+      id: 'RSH-V-GDPR', productId: 'PROD-APP-V', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR',
+      status: 'COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'GDPR Art.30 records confirmed complete by DPO. Records include documentation of automated decision-making under Art.22 as required for AI underwriting.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2025-03-20', transitionedBy: 'DPO', correlationId: 'PA-APPV-GDPR',
+    },
+    {
+      id: 'RSH-V-EUAIA', productId: 'PROD-APP-V', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA',
+      status: 'NON_COMPLIANT', previousStatus: 'NOT_ASSESSED',
+      reason: 'AI Underwriting Engine is a high-risk AI system (Annex III — insurance underwriting) but has not been registered in the EU AI database. System is in production without completing mandatory registration.',
+      controlChangeId: null, remediationCaseId: null, evidencePackageId: null,
+      transitionedAt: '2025-04-01', transitionedBy: 'AI Governance Lead', correlationId: 'PG-V-001',
+    },
+  ]
+  statusHistoryV.forEach(s => db.insert(requirementStatusHistory).values(s).run())
+
+  // ── DDCR Reporting Records — PROD-APP-Y (Trading Platform, fully compliant) ─
+  const ddcrY = [
+    // Requirement-level
+    { id: 'DDCR-Y-DORA-REQ', productId: 'PROD-APP-Y', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA', status: 'COMPLIANT', effectiveAt: '2025-01-21', evidencePackageId: 'EP-Y-DORA', reportedAt: now, reportedBy: 'IT Risk & Compliance Lead', notes: 'Backup geo-redundancy fully implemented and verified for Trading Platform.' },
+    { id: 'DDCR-Y-NIS2-REQ', productId: 'PROD-APP-Y', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2', status: 'COMPLIANT', effectiveAt: '2025-01-21', evidencePackageId: 'EP-Y-NIS2', reportedAt: now, reportedBy: 'IT Risk & Compliance Lead', notes: 'Incident handling process documented and verified.' },
+    { id: 'DDCR-Y-GDPR-REQ', productId: 'PROD-APP-Y', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR', status: 'COMPLIANT', effectiveAt: '2025-01-21', evidencePackageId: 'EP-Y-GDPR', reportedAt: now, reportedBy: 'DPO', notes: 'Art.30 records complete and current.' },
+    { id: 'DDCR-Y-EUAIA-REQ', productId: 'PROD-APP-Y', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA', status: 'NOT_APPLICABLE', effectiveAt: '2025-01-10', evidencePackageId: null, reportedAt: now, reportedBy: 'AI Governance Lead', notes: 'Trading Platform is not an AI system.' },
+    // Regulation-level aggregates
+    { id: 'DDCR-Y-DORA', productId: 'PROD-APP-Y', requirementId: null, sourceId: 'REG-DORA', status: 'COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'DORA overall: 1 of 1 applicable requirement compliant.' },
+    { id: 'DDCR-Y-NIS2', productId: 'PROD-APP-Y', requirementId: null, sourceId: 'REG-NIS2', status: 'COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'NIS2 overall: 1 of 1 applicable requirement compliant.' },
+    { id: 'DDCR-Y-GDPR', productId: 'PROD-APP-Y', requirementId: null, sourceId: 'REG-GDPR', status: 'COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'GDPR overall: 1 of 1 applicable requirement compliant.' },
+    { id: 'DDCR-Y-EUAIA', productId: 'PROD-APP-Y', requirementId: null, sourceId: 'REG-EUAIA', status: 'NOT_APPLICABLE', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'EU AI Act: not applicable to Trading Platform.' },
+    // Product-level aggregate
+    { id: 'DDCR-Y-PROD', productId: 'PROD-APP-Y', requirementId: null, sourceId: null, status: 'COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'Trading Platform overall: all 3 applicable requirements compliant.' },
+  ]
+  ddcrY.forEach(r => db.insert(ddcrReportingRecords).values(r).run())
+
+  // ── DDCR Reporting Records — PROD-APP-Z (Customer Portal, mixed) ──────────
+  const ddcrZ = [
+    // Requirement-level
+    { id: 'DDCR-Z-DORA-REQ', productId: 'PROD-APP-Z', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA', status: 'COMPLIANT', effectiveAt: '2025-02-21', evidencePackageId: 'EP-Z-DORA', reportedAt: now, reportedBy: 'IT Risk & Compliance Lead', notes: 'Backup geo-redundancy implemented and verified for Customer Portal.' },
+    { id: 'DDCR-Z-NIS2-REQ', productId: 'PROD-APP-Z', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2', status: 'NON_COMPLIANT', effectiveAt: '2025-02-10', evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'Incident handling process gap. No documented system-specific procedure exists for Customer Portal.' },
+    { id: 'DDCR-Z-GDPR-REQ', productId: 'PROD-APP-Z', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR', status: 'NON_COMPLIANT', effectiveAt: '2025-02-10', evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'Art.30 records outdated (>18 months). Remediation required.' },
+    { id: 'DDCR-Z-EUAIA-REQ', productId: 'PROD-APP-Z', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA', status: 'NOT_APPLICABLE', effectiveAt: '2025-02-05', evidencePackageId: null, reportedAt: now, reportedBy: 'AI Governance Lead', notes: 'Customer Portal is not an AI system.' },
+    // Regulation-level aggregates
+    { id: 'DDCR-Z-DORA', productId: 'PROD-APP-Z', requirementId: null, sourceId: 'REG-DORA', status: 'COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'DORA overall: 1 of 1 applicable requirement compliant.' },
+    { id: 'DDCR-Z-NIS2', productId: 'PROD-APP-Z', requirementId: null, sourceId: 'REG-NIS2', status: 'NON_COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'NIS2 overall: 1 of 1 applicable requirement non-compliant.' },
+    { id: 'DDCR-Z-GDPR', productId: 'PROD-APP-Z', requirementId: null, sourceId: 'REG-GDPR', status: 'NON_COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'GDPR overall: 1 of 1 applicable requirement non-compliant.' },
+    { id: 'DDCR-Z-EUAIA', productId: 'PROD-APP-Z', requirementId: null, sourceId: 'REG-EUAIA', status: 'NOT_APPLICABLE', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'EU AI Act: not applicable to Customer Portal.' },
+    // Product-level aggregate
+    { id: 'DDCR-Z-PROD', productId: 'PROD-APP-Z', requirementId: null, sourceId: null, status: 'NON_COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'Customer Portal overall: 2 of 3 applicable requirements non-compliant (NIS2, GDPR).' },
+  ]
+  ddcrZ.forEach(r => db.insert(ddcrReportingRecords).values(r).run())
+
+  // ── DDCR Reporting Records — PROD-APP-W (Internal Analytics, not assessed) ─
+  db.insert(ddcrReportingRecords).values({
+    id: 'DDCR-W-001',
+    productId: 'PROD-APP-W',
+    requirementId: null,
+    sourceId: null,
+    status: 'NOT_ASSESSED',
+    effectiveAt: now,
+    evidencePackageId: null,
+    reportedAt: now,
+    reportedBy: 'system',
+    notes: 'Internal Analytics: newly onboarded product, compliance assessment not yet started.',
+  }).run()
+
+  // ── DDCR Reporting Records — PROD-APP-V (AI Underwriting, EU AI Act non-compliant) ──
+  const ddcrV = [
+    // Requirement-level
+    { id: 'DDCR-V-DORA-REQ', productId: 'PROD-APP-V', requirementId: 'DORA-BACKUP-001', sourceId: 'REG-DORA', status: 'COMPLIANT', effectiveAt: '2025-03-20', evidencePackageId: null, reportedAt: now, reportedBy: 'IT Risk & Compliance Lead', notes: 'Backup geo-redundancy verified. Hybrid deployment uses geo-redundant storage.' },
+    { id: 'DDCR-V-NIS2-REQ', productId: 'PROD-APP-V', requirementId: 'NIS2-SECURITY-001', sourceId: 'REG-NIS2', status: 'COMPLIANT', effectiveAt: '2025-03-20', evidencePackageId: null, reportedAt: now, reportedBy: 'IT Risk & Compliance Lead', notes: 'NIS2 incident handling verified for AI Underwriting Engine.' },
+    { id: 'DDCR-V-GDPR-REQ', productId: 'PROD-APP-V', requirementId: 'GDPR-RECORDS-001', sourceId: 'REG-GDPR', status: 'COMPLIANT', effectiveAt: '2025-03-20', evidencePackageId: null, reportedAt: now, reportedBy: 'DPO', notes: 'GDPR Art.30 records complete including AI automated decision-making documentation.' },
+    { id: 'DDCR-V-EUAIA-REQ', productId: 'PROD-APP-V', requirementId: 'EUAIA-INVENTORY-001', sourceId: 'REG-EUAIA', status: 'NON_COMPLIANT', effectiveAt: '2025-04-01', evidencePackageId: null, reportedAt: now, reportedBy: 'AI Governance Lead', notes: 'High-risk AI system not registered in EU AI database. Registration required before continued operation.' },
+    // Regulation-level aggregates
+    { id: 'DDCR-V-DORA', productId: 'PROD-APP-V', requirementId: null, sourceId: 'REG-DORA', status: 'COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'DORA overall: 1 of 1 applicable requirement compliant.' },
+    { id: 'DDCR-V-NIS2', productId: 'PROD-APP-V', requirementId: null, sourceId: 'REG-NIS2', status: 'COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'NIS2 overall: 1 of 1 applicable requirement compliant.' },
+    { id: 'DDCR-V-GDPR', productId: 'PROD-APP-V', requirementId: null, sourceId: 'REG-GDPR', status: 'COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'GDPR overall: 1 of 1 applicable requirement compliant.' },
+    { id: 'DDCR-V-EUAIA', productId: 'PROD-APP-V', requirementId: null, sourceId: 'REG-EUAIA', status: 'NON_COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'EU AI Act overall: 1 of 1 applicable requirement non-compliant — EU AI database registration missing.' },
+    // Product-level aggregate
+    { id: 'DDCR-V-PROD', productId: 'PROD-APP-V', requirementId: null, sourceId: null, status: 'NON_COMPLIANT', effectiveAt: now, evidencePackageId: null, reportedAt: now, reportedBy: 'system', notes: 'AI Underwriting Engine overall: 1 of 4 applicable requirements non-compliant (EU AI Act).' },
+  ]
+  ddcrV.forEach(r => db.insert(ddcrReportingRecords).values(r).run())
+
   console.log('✓ Database seeded successfully')
-  console.log('  - 1 regulation source (DORA Article 12)')
-  console.log('  - 4 requirements')
+  console.log('  - 1 regulation source (DORA Article 12) [legacy]')
+  console.log('  - 4 requirements [legacy]')
   console.log('  - 1 guideline (v3.2 active, v3.3 proposed)')
   console.log('  - 2 control activities (BR0039, BR0039-GR)')
-  console.log('  - 1 application (IT App X)')
+  console.log('  - 5 applications (IT App X, Trading Platform, Customer Portal, Internal Analytics, AI Underwriting Engine)')
   console.log('  - 5 policy definitions')
   console.log('  - 5 policy evaluations (baseline)')
   console.log('  - 4 compliance work products')
   console.log('  - 2 documents (SDD, Operating Manual)')
-  console.log('  - 25 portfolio apps')
+  console.log('  - 29 portfolio apps (25 legacy + 4 new)')
   console.log('  - 6 value assumptions')
   console.log('  - 1 demo run (BASELINE state)')
+  console.log('  ── Multi-regulation domain model ──')
+  console.log('  - 4 regulatory sources (DORA, NIS2, GDPR, EU AI Act)')
+  console.log('  - 4 regulatory versions')
+  console.log('  - 4 regulatory requirements')
+  console.log('  - 5 internal documents')
+  console.log('  - 6 requirement → document mappings')
+  console.log('  - 2 compliance gaps (DORA backup, NIS2 process)')
+  console.log('  - 2 control changes (both approved and published)')
+  console.log('  - 5 products (IT App X, Trading Platform, Customer Portal, Internal Analytics, AI Underwriting Engine)')
+  console.log('  - 16 product applicability records')
+  console.log('  - 6 product gaps (3×PROD-X, 2×PROD-Z, 1×PROD-V)')
+  console.log('  - 3 remediation cases')
+  console.log('  - 6 work product definitions')
+  console.log('  - 5 product work products')
+  console.log('  - 4 verification criteria')
+  console.log('  - 5 verification results (GDPR×PROD-X, DORA/NIS2/GDPR×PROD-Y, DORA×PROD-Z)')
+  console.log('  - 5 evidence packages (GDPR×PROD-X, DORA/NIS2/GDPR×PROD-Y, DORA×PROD-Z)')
+  console.log('  - 16 requirement status history entries')
+  console.log('  - 37 DDCR reporting records (requirement + regulation + product level × 5 products)')
 }
 
 seed()

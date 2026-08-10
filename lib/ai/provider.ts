@@ -79,6 +79,27 @@ export interface AiProvider {
   generateIacProposal(appId: string, appName: string, controlCode: string): Promise<IacProposal>
   generateDocumentationProposal(appId: string, deployedConfig: Record<string, unknown>): Promise<DocProposal>
   answerAuditQuestion(question: string, context: AuditContext): Promise<AuditAnswer>
+  analyzeComplianceGaps(
+    requirement: { articleRef: string; title: string; description: string; obligationType: string; obligationLevel: string },
+    documents: Array<{ id: string; title: string; type: string; content: string | null; status: string }>
+  ): Promise<GapAnalysisResult>
+  generateControlChange(
+    gap: { title: string; description: string; severity: string; gapType: string; aiAnalysis: string | null },
+    requirement: { articleRef: string; title: string; description: string; obligationType: string },
+    sourceShortCode: string
+  ): Promise<ControlChangeProposal>
+  analyzeRegulatoryDelta(
+    changeSummary: string,
+    sourceShortCode: string,
+    existingRequirements: Array<{ id: string; articleRef: string; title: string; description: string }>,
+    internalDocuments: Array<{ id: string; title: string; type: string; content: string | null }>
+  ): Promise<RegulatoryDeltaAnalysis>
+  suggestRemediationSteps(
+    caseData: { title: string; description: string | null; status: string; priority: string },
+    productData: { name: string; type: string; criticality: string },
+    requirementData: { articleRef: string; title: string; description: string; obligationType: string },
+    regulationShortCode: string
+  ): Promise<RemediationSuggestionResult>
 }
 
 export interface AuditContext {
@@ -92,6 +113,63 @@ export interface AuditContext {
   omVersion: string
   /** Optional extra context injected by the route (transform log summary, citations, etc.) */
   additionalContext?: string
+}
+
+export interface GapAnalysisResult {
+  gaps: Array<{
+    title: string
+    description: string
+    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+    gap_type: 'CONFIGURATION' | 'DOCUMENTATION' | 'PROCESS' | 'GOVERNANCE' | 'APPROVAL'
+    affectedDocumentIds: string[]
+    aiAnalysis: string
+  }>
+  coverageStatus: 'NOT_COVERED' | 'PARTIAL' | 'SUBSTANTIALLY_COVERED' | 'FULLY_COVERED'
+  coverageNotes: string
+  provenance: AiProvenance
+}
+
+export interface ControlChangeProposal {
+  title: string
+  description: string
+  changeType: 'PROCESS' | 'TECHNICAL' | 'DOCUMENTATION' | 'GOVERNANCE' | 'COMBINED'
+  proposedChanges: {
+    summary: string
+    steps: string[]
+    documentsToUpdate: string[]
+    technicalChanges: string
+    acceptanceCriteria: string[]
+  }
+  estimatedEffort: string
+  provenance: AiProvenance
+}
+
+export interface RegulatoryDeltaAnalysis {
+  impactedRequirementIds: string[]
+  newGaps: Array<{
+    requirementId: string
+    title: string
+    description: string
+    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+    gap_type: 'CONFIGURATION' | 'DOCUMENTATION' | 'PROCESS' | 'GOVERNANCE' | 'APPROVAL'
+    aiAnalysis: string
+  }>
+  summary: string
+  provenance: AiProvenance
+}
+
+export interface RemediationSuggestionResult {
+  steps: Array<{
+    step: number
+    action: string
+    owner: string
+    effort: string
+    description: string
+  }>
+  timelineWeeks: number
+  blockers: string[]
+  summary: string
+  provenance: AiProvenance
 }
 
 // ─── Model assignment constants ───────────────────────────────────────────────
@@ -145,6 +223,10 @@ class NoAiProvider implements AiProvider {
   async generateIacProposal(): Promise<IacProposal> { return this.fail() }
   async generateDocumentationProposal(): Promise<DocProposal> { return this.fail() }
   async answerAuditQuestion(): Promise<AuditAnswer> { return this.fail() }
+  async analyzeComplianceGaps(): Promise<GapAnalysisResult> { return this.fail() }
+  async generateControlChange(): Promise<ControlChangeProposal> { return this.fail() }
+  async analyzeRegulatoryDelta(): Promise<RegulatoryDeltaAnalysis> { return this.fail() }
+  async suggestRemediationSteps(): Promise<RemediationSuggestionResult> { return this.fail() }
 }
 
 // ─── Rate-limit helpers ───────────────────────────────────────────────────────
@@ -335,6 +417,121 @@ class OpenAiProvider implements AiProvider {
           }))
         : [],
       disclaimer: String(parsed.disclaimer ?? ''),
+      provenance: this.provenance(model),
+    }
+  }
+
+  async analyzeComplianceGaps(
+    requirement: { articleRef: string; title: string; description: string; obligationType: string; obligationLevel: string },
+    documents: Array<{ id: string; title: string; type: string; content: string | null; status: string }>
+  ): Promise<GapAnalysisResult> {
+    const model = MODEL_REASONING
+    const system = `You are a regulatory compliance analyst at a European financial institution. Given a regulatory requirement and a set of internal documents, identify specific compliance gaps — areas where the documents do not fully satisfy the requirement. Be precise: cite specific missing elements, not vague generalities. Return a valid JSON object.`
+    const docSummaries = documents.map(d => ({
+      id: d.id,
+      title: d.title,
+      type: d.type,
+      status: d.status,
+      contentExcerpt: d.content ? d.content.slice(0, 2000) : null,
+    }))
+    const user = `Regulatory requirement:\n${JSON.stringify(requirement, null, 2)}\n\nInternal documents:\n${JSON.stringify(docSummaries, null, 2)}\n\nReturn a JSON object with exactly these keys:\n- gaps: array of objects, each with: title (string), description (string), severity ("CRITICAL"|"HIGH"|"MEDIUM"|"LOW"), gap_type ("CONFIGURATION"|"DOCUMENTATION"|"PROCESS"|"GOVERNANCE"|"APPROVAL"), affectedDocumentIds (array of document id strings from the input), aiAnalysis (string)\n- coverageStatus: one of "NOT_COVERED"|"PARTIAL"|"SUBSTANTIALLY_COVERED"|"FULLY_COVERED"\n- coverageNotes: string\n\nReturn only the JSON object.`
+    const parsed = await this.chat(model, system, user)
+    const rawGaps = Array.isArray(parsed.gaps) ? parsed.gaps as Array<Record<string, unknown>> : []
+    return {
+      gaps: rawGaps.map(g => ({
+        title: String(g.title ?? ''),
+        description: String(g.description ?? ''),
+        severity: (['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(String(g.severity)) ? String(g.severity) : 'MEDIUM') as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW',
+        gap_type: (['CONFIGURATION', 'DOCUMENTATION', 'PROCESS', 'GOVERNANCE', 'APPROVAL'].includes(String(g.gap_type)) ? String(g.gap_type) : 'PROCESS') as 'CONFIGURATION' | 'DOCUMENTATION' | 'PROCESS' | 'GOVERNANCE' | 'APPROVAL',
+        affectedDocumentIds: Array.isArray(g.affectedDocumentIds) ? g.affectedDocumentIds.map(String) : [],
+        aiAnalysis: String(g.aiAnalysis ?? ''),
+      })),
+      coverageStatus: (['NOT_COVERED', 'PARTIAL', 'SUBSTANTIALLY_COVERED', 'FULLY_COVERED'].includes(String(parsed.coverageStatus)) ? String(parsed.coverageStatus) : 'PARTIAL') as 'NOT_COVERED' | 'PARTIAL' | 'SUBSTANTIALLY_COVERED' | 'FULLY_COVERED',
+      coverageNotes: String(parsed.coverageNotes ?? ''),
+      provenance: this.provenance(model),
+    }
+  }
+
+  async generateControlChange(
+    gap: { title: string; description: string; severity: string; gapType: string; aiAnalysis: string | null },
+    requirement: { articleRef: string; title: string; description: string; obligationType: string },
+    sourceShortCode: string
+  ): Promise<ControlChangeProposal> {
+    const model = MODEL_REASONING
+    const system = `You are a GRC control designer at a European financial institution. Given a compliance gap identified during a regulatory analysis, design a specific, actionable control change to remediate it. The proposal must be concrete and implementable. Return a valid JSON object.`
+    const user = `Compliance gap:\n- title: ${gap.title}\n- description: ${gap.description}\n- severity: ${gap.severity}\n- gap_type: ${gap.gapType}\n- ai_analysis: ${gap.aiAnalysis ?? 'N/A'}\n\nRequirement context:\n- articleRef: ${requirement.articleRef}\n- title: ${requirement.title}\n- description: ${requirement.description}\n- obligation_type: ${requirement.obligationType}\n- regulation: ${sourceShortCode}\n\nReturn a JSON object with exactly these keys:\n- title: string\n- description: string\n- changeType: one of "PROCESS"|"TECHNICAL"|"DOCUMENTATION"|"GOVERNANCE"|"COMBINED"\n- proposedChanges: object with: summary (string), steps (array of strings), documentsToUpdate (array of strings), technicalChanges (string), acceptanceCriteria (array of strings)\n- estimatedEffort: string\n\nReturn only the JSON object.`
+    const parsed = await this.chat(model, system, user)
+    const pc = (parsed.proposedChanges ?? {}) as Record<string, unknown>
+    return {
+      title: String(parsed.title ?? ''),
+      description: String(parsed.description ?? ''),
+      changeType: (['PROCESS', 'TECHNICAL', 'DOCUMENTATION', 'GOVERNANCE', 'COMBINED'].includes(String(parsed.changeType)) ? String(parsed.changeType) : 'PROCESS') as 'PROCESS' | 'TECHNICAL' | 'DOCUMENTATION' | 'GOVERNANCE' | 'COMBINED',
+      proposedChanges: {
+        summary: String(pc.summary ?? ''),
+        steps: Array.isArray(pc.steps) ? pc.steps.map(String) : [],
+        documentsToUpdate: Array.isArray(pc.documentsToUpdate) ? pc.documentsToUpdate.map(String) : [],
+        technicalChanges: String(pc.technicalChanges ?? ''),
+        acceptanceCriteria: Array.isArray(pc.acceptanceCriteria) ? pc.acceptanceCriteria.map(String) : [],
+      },
+      estimatedEffort: String(parsed.estimatedEffort ?? ''),
+      provenance: this.provenance(model),
+    }
+  }
+
+  async analyzeRegulatoryDelta(
+    changeSummary: string,
+    sourceShortCode: string,
+    existingRequirements: Array<{ id: string; articleRef: string; title: string; description: string }>,
+    internalDocuments: Array<{ id: string; title: string; type: string; content: string | null }>
+  ): Promise<RegulatoryDeltaAnalysis> {
+    const model = MODEL_REASONING
+    const system = `You are a regulatory change analyst at a European financial institution. Given a summary of regulatory amendments and existing internal documentation, identify which existing requirements are impacted and what new compliance gaps arise. Be specific about what needs to change. Return valid JSON.`
+    const docExcerpts = internalDocuments.map(d => ({
+      id: d.id,
+      title: d.title,
+      type: d.type,
+      contentExcerpt: d.content ? d.content.slice(0, 1500) : null,
+    }))
+    const user = `Regulation: ${sourceShortCode}\n\nChange summary:\n${changeSummary}\n\nExisting requirements (use these exact IDs in your response):\n${JSON.stringify(existingRequirements, null, 2)}\n\nInternal documents:\n${JSON.stringify(docExcerpts, null, 2)}\n\nReturn a JSON object with exactly these keys:\n- impactedRequirementIds: array of requirement IDs from the provided list that are affected by the amendment\n- newGaps: array of objects, each with: requirementId (from the provided list), title (string), description (string), severity ("CRITICAL"|"HIGH"|"MEDIUM"|"LOW"), gap_type ("CONFIGURATION"|"DOCUMENTATION"|"PROCESS"|"GOVERNANCE"|"APPROVAL"), aiAnalysis (string)\n- summary: string summarising the overall impact\n\nReturn only the JSON object.`
+    const parsed = await this.chat(model, system, user)
+    const rawGaps = Array.isArray(parsed.newGaps) ? parsed.newGaps as Array<Record<string, unknown>> : []
+    return {
+      impactedRequirementIds: Array.isArray(parsed.impactedRequirementIds) ? parsed.impactedRequirementIds.map(String) : [],
+      newGaps: rawGaps.map(g => ({
+        requirementId: String(g.requirementId ?? ''),
+        title: String(g.title ?? ''),
+        description: String(g.description ?? ''),
+        severity: (['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(String(g.severity)) ? String(g.severity) : 'MEDIUM') as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW',
+        gap_type: (['CONFIGURATION', 'DOCUMENTATION', 'PROCESS', 'GOVERNANCE', 'APPROVAL'].includes(String(g.gap_type)) ? String(g.gap_type) : 'PROCESS') as 'CONFIGURATION' | 'DOCUMENTATION' | 'PROCESS' | 'GOVERNANCE' | 'APPROVAL',
+        aiAnalysis: String(g.aiAnalysis ?? ''),
+      })),
+      summary: String(parsed.summary ?? ''),
+      provenance: this.provenance(model),
+    }
+  }
+
+  async suggestRemediationSteps(
+    caseData: { title: string; description: string | null; status: string; priority: string },
+    productData: { name: string; type: string; criticality: string },
+    requirementData: { articleRef: string; title: string; description: string; obligationType: string },
+    regulationShortCode: string
+  ): Promise<RemediationSuggestionResult> {
+    const model = MODEL_CODE
+    const system = `You are a compliance remediation expert. Given a remediation case, product context, and regulatory requirement, produce a concrete step-by-step action plan in JSON.`
+    const user = `Remediation case:\n- title: ${caseData.title}\n- description: ${caseData.description ?? 'N/A'}\n- status: ${caseData.status}\n- priority: ${caseData.priority}\n\nProduct:\n- name: ${productData.name}\n- type: ${productData.type}\n- criticality: ${productData.criticality}\n\nRegulation: ${regulationShortCode}\nRequirement:\n- articleRef: ${requirementData.articleRef}\n- title: ${requirementData.title}\n- description: ${requirementData.description}\n- obligationType: ${requirementData.obligationType}\n\nReturn a JSON object with exactly these keys:\n- steps: array of objects, each with: step (number, 1-based), action (string), owner (string, a role), effort (string, e.g. "2 days"), description (string)\n- timelineWeeks: number (total estimated weeks)\n- blockers: array of strings (known blockers or dependencies, may be empty)\n- summary: string (1-2 sentence executive summary)\n\nReturn only the JSON object.`
+    const parsed = await this.chat(model, system, user)
+    const rawSteps = Array.isArray(parsed.steps) ? parsed.steps as Array<Record<string, unknown>> : []
+    return {
+      steps: rawSteps.map((s, i) => ({
+        step: typeof s.step === 'number' ? s.step : i + 1,
+        action: String(s.action ?? ''),
+        owner: String(s.owner ?? ''),
+        effort: String(s.effort ?? ''),
+        description: String(s.description ?? ''),
+      })),
+      timelineWeeks: typeof parsed.timelineWeeks === 'number' ? parsed.timelineWeeks : 4,
+      blockers: Array.isArray(parsed.blockers) ? parsed.blockers.map(String) : [],
+      summary: String(parsed.summary ?? ''),
       provenance: this.provenance(model),
     }
   }

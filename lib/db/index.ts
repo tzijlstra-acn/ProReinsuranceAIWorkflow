@@ -250,6 +250,245 @@ sqlite.exec(`
     failure_message TEXT,
     correlation_id TEXT NOT NULL DEFAULT ''
   );
+
+  -- ── Multi-Regulation Domain Model ──────────────────────────────────────────
+
+  CREATE TABLE IF NOT EXISTS regulatory_sources (
+    id TEXT PRIMARY KEY,
+    short_code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    jurisdiction TEXT NOT NULL DEFAULT 'EU',
+    status TEXT NOT NULL DEFAULT 'active',
+    effective_date TEXT,
+    description TEXT,
+    eur_lex_url TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS regulatory_versions (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    published_at TEXT NOT NULL,
+    change_type TEXT NOT NULL DEFAULT 'initial',
+    change_summary TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS regulatory_requirements (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    article_ref TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    obligation_type TEXT NOT NULL,
+    obligation_level TEXT NOT NULL DEFAULT 'MANDATORY',
+    applicability_scope TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS internal_documents (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    owner TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    version TEXT,
+    content TEXT,
+    linked_document_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS requirement_document_mappings (
+    id TEXT PRIMARY KEY,
+    requirement_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    coverage_status TEXT NOT NULL DEFAULT 'NOT_ASSESSED',
+    assessed_at TEXT,
+    notes TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS compliance_gaps (
+    id TEXT PRIMARY KEY,
+    requirement_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    gap_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    detected_at TEXT NOT NULL,
+    affected_document_ids TEXT DEFAULT '[]',
+    ai_analysis TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS control_changes (
+    id TEXT PRIMARY KEY,
+    gap_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    change_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'DRAFT',
+    proposed_at TEXT,
+    approved_at TEXT,
+    approved_by TEXT,
+    published_at TEXT,
+    proposed_changes TEXT,
+    ai_generated INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS products (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'IT_APPLICATION',
+    criticality TEXT NOT NULL,
+    hosting_model TEXT,
+    legal_entity TEXT,
+    owner TEXT,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    application_id TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS product_applicability (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    applicable INTEGER NOT NULL,
+    applicability_reason TEXT,
+    assessed_at TEXT NOT NULL,
+    assessed_by TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS product_gaps (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    control_change_id TEXT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    gap_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    detected_at TEXT NOT NULL,
+    resolved_at TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS work_product_definitions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    description TEXT,
+    required_for_obligation_types TEXT DEFAULT '[]'
+  );
+
+  CREATE TABLE IF NOT EXISTS product_work_products (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    definition_id TEXT NOT NULL,
+    requirement_id TEXT,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'NOT_STARTED',
+    content TEXT,
+    document_id TEXT,
+    approval_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS verification_criteria (
+    id TEXT PRIMARY KEY,
+    requirement_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    verifier_type TEXT NOT NULL,
+    is_mandatory INTEGER NOT NULL DEFAULT 1,
+    expected_value TEXT,
+    policy_code TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS remediation_cases (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    priority TEXT NOT NULL DEFAULT 'MEDIUM',
+    assigned_to TEXT,
+    due_date TEXT,
+    product_gap_ids TEXT DEFAULT '[]',
+    created_at TEXT DEFAULT (datetime('now')),
+    resolved_at TEXT,
+    resolution_notes TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS verification_results (
+    id TEXT PRIMARY KEY,
+    criterion_id TEXT NOT NULL,
+    product_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    remediation_case_id TEXT,
+    status TEXT NOT NULL DEFAULT 'NOT_RUN',
+    observed_value TEXT,
+    evidence_reference TEXT,
+    verified_at TEXT NOT NULL,
+    notes TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS evidence_packages (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    remediation_case_id TEXT,
+    status TEXT NOT NULL DEFAULT 'ASSEMBLING',
+    verification_result_ids TEXT DEFAULT '[]',
+    evidence_artifact_ids TEXT DEFAULT '[]',
+    assembled_at TEXT,
+    approved_at TEXT,
+    approved_by TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS requirement_status_history (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    previous_status TEXT,
+    reason TEXT,
+    control_change_id TEXT,
+    remediation_case_id TEXT,
+    evidence_package_id TEXT,
+    transitioned_at TEXT NOT NULL,
+    transitioned_by TEXT,
+    correlation_id TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS ddcr_reporting_records (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    requirement_id TEXT,
+    source_id TEXT,
+    status TEXT NOT NULL,
+    effective_at TEXT NOT NULL,
+    evidence_package_id TEXT,
+    reported_at TEXT NOT NULL,
+    reported_by TEXT,
+    notes TEXT
+  );
 `)
 
 export const db = drizzle(sqlite, { schema })

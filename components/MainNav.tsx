@@ -5,10 +5,14 @@ import { Settings } from 'lucide-react'
 import { clsx } from 'clsx'
 
 const NAV_ITEMS = [
-  { href: '/', label: 'Journey' },
-  { href: '/system-map', label: 'System Map' },
-  { href: '/evidence-centre', label: 'Evidence Centre' },
+  { href: '/', label: 'Dashboard' },
+  { href: '/workflow', label: 'Workflow' },
+  { href: '/compliance-hub', label: 'Compliance Hub' },
+  { href: '/product-hub', label: 'Product Hub' },
+  { href: '/ddcr', label: 'DDCR' },
+  { href: '/remediation', label: 'Remediation' },
   { href: '/portfolio', label: 'Portfolio' },
+  { href: '/evidence-centre', label: 'Evidence Centre' },
 ]
 
 export function MainNav() {

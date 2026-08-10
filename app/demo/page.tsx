@@ -147,11 +147,60 @@ const STAGE_PROVENANCE = {
   },
 } as const
 
+// ─── Platform Tour steps ───────────────────────────────────────────────────────
+
+interface TourStep {
+  number: number
+  title: string
+  presenterNote: string
+  link: string
+}
+
+const PLATFORM_TOUR_STEPS: TourStep[] = [
+  {
+    number: 1,
+    title: 'Executive Dashboard',
+    presenterNote: 'We start with the board-level view. Across all five products and four regulations — DORA, NIS2, GDPR, and the EU AI Act — the dashboard shows real-time compliance status. One product is fully compliant, three are in remediation, and there is one pending regulatory update that requires attention.',
+    link: '/dashboard',
+  },
+  {
+    number: 2,
+    title: 'Regulatory Change Detected',
+    presenterNote: 'Munich Re subscribes to EUR-Lex. When DORA published a Q1 2025 amendment, the system automatically ingested it and flagged it as a pending update in the Compliance Hub. The amber banner tells the compliance team there is something to act on — before a regulator asks about it.',
+    link: '/compliance-hub',
+  },
+  {
+    number: 3,
+    title: 'AI Gap Analysis',
+    presenterNote: 'For each regulatory requirement, the AI reads both the obligation text and Munich Re\'s internal policy documents, then identifies gaps. In seconds it produces a structured gap register with severity ratings, gap types, and affected documents — the same analysis that would take a compliance analyst days to produce manually.',
+    link: '/compliance-hub/regulations',
+  },
+  {
+    number: 4,
+    title: 'Remediation Case Workflow',
+    presenterNote: 'Each gap triggers a remediation case — a structured work item assigned to the right team. The system tracks status from Open through In Progress to Resolved, links to the originating gap and regulation, and lets the AI suggest a concrete action plan with effort estimates and blockers.',
+    link: '/remediation',
+  },
+  {
+    number: 5,
+    title: 'Verification & Evidence',
+    presenterNote: 'When remediation work is complete, the verification engine runs automated checks against the product. Technical policies, document approvals, and workflow evidence are evaluated. Results are assembled into an evidence package that sits at the centre of the DDCR gate — nothing advances without passing all mandatory criteria.',
+    link: '/ddcr',
+  },
+  {
+    number: 6,
+    title: 'Multi-Regulation DDCR',
+    presenterNote: 'The DDCR dashboard gives the full picture across every product and regulation simultaneously. When all four evidence gates pass — complete package, verifications passed, no open gaps, published control change — the system transitions the requirement to COMPLIANT. This is the defensible, auditable record that regulators expect.',
+    link: '/ddcr',
+  },
+]
+
 interface DemoData { state: string; stageNumber: number }
 
 // ─── Page component ───────────────────────────────────────────────────────────
 
 export default function DemoPage() {
+  const [activeTab, setActiveTab] = useState<'platform-tour' | 'dora-journey'>('platform-tour')
   const [data, setData] = useState<DemoData | null>(null)
   const [activeStage, setActiveStage] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -232,245 +281,360 @@ export default function DemoPage() {
         </div>
       </div>
 
-      {/* ── Six-step progress navigator ──────────────────────────────── */}
-      {data && (
-        <div
-          className="bg-white p-4"
-          style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)' }}
+      {/* ── Tab toggle ──────────────────────────────────────────────── */}
+      <div
+        className="inline-flex rounded-lg p-1"
+        style={{ background: 'var(--mr-light-grey)', border: '1px solid var(--color-border)' }}
+      >
+        <button
+          onClick={() => setActiveTab('platform-tour')}
+          className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors"
+          style={{
+            background: activeTab === 'platform-tour' ? '#003781' : 'transparent',
+            color: activeTab === 'platform-tour' ? '#ffffff' : 'var(--color-text-secondary)',
+            border: 'none',
+            cursor: 'pointer',
+          }}
         >
-          <StateIndicator
-            currentStage={data.stageNumber}
-            demoState={data.state}
-            selectedStage={activeStage}
-            onStageClick={n => { setActiveStage(n); setResult(null); setTechnicalOpen(false) }}
-          />
+          Platform Tour
+        </button>
+        <button
+          onClick={() => setActiveTab('dora-journey')}
+          className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors"
+          style={{
+            background: activeTab === 'dora-journey' ? '#003781' : 'transparent',
+            color: activeTab === 'dora-journey' ? '#ffffff' : 'var(--color-text-secondary)',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          DORA Journey
+        </button>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════
+          PLATFORM TOUR TAB
+      ══════════════════════════════════════════════════════════════ */}
+      {activeTab === 'platform-tour' && (
+        <div className="space-y-5">
+          {/* Intro */}
+          <div>
+            <p className="text-sm font-medium" style={{ color: 'var(--mr-midnight-blue)' }}>
+              A walkthrough of the multi-regulation compliance platform for Munich Re stakeholders.
+            </p>
+            <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+              Click &ldquo;Open in App &rarr;&rdquo; on each step to navigate to the live feature.
+            </p>
+          </div>
+
+          {/* 2-column card grid */}
+          <div
+            className="grid gap-4"
+            style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}
+          >
+            {PLATFORM_TOUR_STEPS.map((step) => (
+              <div
+                key={step.number}
+                className="bg-white flex flex-col"
+                style={{
+                  border: '1px solid #D0D7E3',
+                  borderRadius: '10px',
+                  padding: '24px',
+                }}
+              >
+                {/* Top row: badge + title */}
+                <div className="flex items-center gap-3 mb-3">
+                  <span
+                    className="flex-shrink-0 flex items-center justify-center text-xs font-bold text-white"
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: '#003781',
+                    }}
+                  >
+                    {step.number}
+                  </span>
+                  <h3 className="text-sm font-bold" style={{ color: '#003781' }}>
+                    {step.title}
+                  </h3>
+                </div>
+
+                {/* Presenter note */}
+                <p
+                  className="flex-1 leading-relaxed mb-4"
+                  style={{ fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: '1.6' }}
+                >
+                  {step.presenterNote}
+                </p>
+
+                {/* Open in App button */}
+                <div>
+                  <Link
+                    href={step.link}
+                    className="inline-block px-3 py-1.5 text-xs font-medium rounded transition-colors"
+                    style={{
+                      border: '1px solid #003781',
+                      color: '#003781',
+                      textDecoration: 'none',
+                      background: 'transparent',
+                    }}
+                  >
+                    Open in App &rarr;
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* ── Step content ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-5">
-        {/* Left: step card (2/3 width) */}
-        <div className="col-span-2 space-y-4">
-          <div
-            className="bg-white"
-            style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)' }}
-          >
-            {/* Step header */}
-            <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
-              <p className="text-xs font-semibold uppercase tracking-wider mb-0.5" style={{ color: 'var(--mr-vibrant-blue)' }}>
-                Step {stage.number}
-              </p>
-              <h2 className="text-lg font-bold" style={{ color: 'var(--mr-midnight-blue)' }}>
-                {stage.title}
-              </h2>
-            </div>
-
-            {/* Provenance strip */}
-            <div className="px-6 pt-4">
-              <ProvenanceStrip {...provenance} />
-            </div>
-
-            {/* Action area */}
-            <div className="px-6 pb-4 flex flex-wrap items-center gap-3">
-              {stage.apiPropose && canPropose && (
-                <button
-                  onClick={() => runAction(stage.apiPropose!, 'Proposal generated')}
-                  disabled={loading}
-                  className="px-4 py-2 text-sm font-medium rounded text-white disabled:opacity-50 transition-colors"
-                  style={{ background: 'var(--mr-vibrant-blue)', border: 'none', cursor: 'pointer' }}
-                >
-                  {loading ? 'Generating…' : 'Generate (AI)'}
-                </button>
-              )}
-              {stage.apiApprove && canApprove && (
-                <button
-                  onClick={() => { setApprovalApiPath(stage.apiApprove!); setApprovalOpen(true) }}
-                  className="px-4 py-2 text-sm font-medium rounded text-white transition-colors"
-                  style={{ background: 'var(--color-success)', border: 'none', cursor: 'pointer' }}
-                >
-                  Review &amp; Approve
-                </button>
-              )}
-              {stage.apiAction && canAction && (
-                <button
-                  onClick={() => runAction(stage.apiAction!, 'Action complete')}
-                  disabled={loading}
-                  className="px-4 py-2 text-sm font-medium rounded text-white disabled:opacity-50 transition-colors"
-                  style={{ background: 'var(--mr-vibrant-blue)', border: 'none', cursor: 'pointer' }}
-                >
-                  {loading ? 'Running…' : 'Execute'}
-                </button>
-              )}
-              {stage.isAudit && (
-                <Link
-                  href="/audit"
-                  className="px-4 py-2 text-sm font-medium rounded text-white"
-                  style={{ background: 'var(--mr-vibrant-blue)', textDecoration: 'none' }}
-                >
-                  Open Audit Evidence →
-                </Link>
-              )}
-              <Link
-                href={`/stages/${stage.number}`}
-                className="text-xs ml-auto"
-                style={{ color: 'var(--mr-vibrant-blue)' }}
-              >
-                View full detail →
-              </Link>
-            </div>
-
-            {/* Result feedback */}
-            {result && (
-              <div
-                className="mx-6 mb-4 p-3 rounded text-xs"
-                style={{
-                  background: result.startsWith('Error') ? 'rgba(192,57,43,0.08)' : 'rgba(26,124,89,0.08)',
-                  color: result.startsWith('Error') ? 'var(--color-danger)' : 'var(--color-success)',
-                  border: `1px solid ${result.startsWith('Error') ? 'rgba(192,57,43,0.25)' : 'rgba(26,124,89,0.25)'}`,
-                }}
-              >
-                {result}
-              </div>
-            )}
-
-            {/* Step completion summary */}
-            {isStepDone && (
-              <div
-                className="mx-6 mb-4 p-3 rounded text-xs space-y-1"
-                style={{ background: 'rgba(26,124,89,0.06)', border: '1px solid rgba(26,124,89,0.2)' }}
-              >
-                <p className="font-semibold" style={{ color: 'var(--color-success)' }}>
-                  ✓ Step {stage.number} completed
-                </p>
-                <p style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="font-medium" style={{ color: 'var(--mr-midnight-blue)' }}>Source: </span>
-                  {stage.completionSummary.source}
-                </p>
-                <p style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="font-medium" style={{ color: 'var(--mr-midnight-blue)' }}>Change: </span>
-                  {stage.completionSummary.change}
-                </p>
-                <p style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="font-medium" style={{ color: 'var(--mr-midnight-blue)' }}>Evidence: </span>
-                  {stage.completionSummary.evidence}
-                </p>
-              </div>
-            )}
-
-            {/* Technical details — collapsed by default */}
+      {/* ══════════════════════════════════════════════════════════════
+          DORA JOURNEY TAB
+      ══════════════════════════════════════════════════════════════ */}
+      {activeTab === 'dora-journey' && (
+        <>
+          {/* ── Six-step progress navigator ──────────────────────────────── */}
+          {data && (
             <div
-              className="mx-6 mb-4"
-              style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius)' }}
+              className="bg-white p-4"
+              style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)' }}
             >
-              <button
-                onClick={() => setTechnicalOpen(o => !o)}
-                className="w-full flex items-center justify-between px-3 py-2 text-xs transition-colors"
-                style={{
-                  background: technicalOpen ? 'var(--mr-light-grey)' : 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--color-text-muted)',
-                }}
+              <StateIndicator
+                currentStage={data.stageNumber}
+                demoState={data.state}
+                selectedStage={activeStage}
+                onStageClick={n => { setActiveStage(n); setResult(null); setTechnicalOpen(false) }}
+              />
+            </div>
+          )}
+
+          {/* ── Step content ─────────────────────────────────────────────── */}
+          <div className="grid grid-cols-3 gap-5">
+            {/* Left: step card (2/3 width) */}
+            <div className="col-span-2 space-y-4">
+              <div
+                className="bg-white"
+                style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)' }}
               >
-                <span className="font-medium">Technical details</span>
-                <span>{technicalOpen ? '▲' : '▼'}</span>
-              </button>
-              {technicalOpen && (
-                <div
-                  className="px-3 pb-3 text-xs space-y-2"
-                  style={{
-                    borderTop: '1px solid var(--color-border)',
-                    fontFamily: 'var(--font-mono)',
-                    color: 'var(--color-text-secondary)',
-                    paddingTop: '0.5rem',
-                  }}
-                >
-                  <div>
-                    <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>System state: </span>
-                    {data?.state ?? '—'}
-                  </div>
-                  <div>
-                    <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>Stage number: </span>
-                    {data?.stageNumber ?? '—'}
-                  </div>
-                  <div>
-                    <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>Can propose: </span>
-                    {String(canPropose)}
-                    {' · '}
-                    <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>Can approve: </span>
-                    {String(canApprove)}
-                    {' · '}
-                    <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>Can action: </span>
-                    {String(canAction)}
-                  </div>
+                {/* Step header */}
+                <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-0.5" style={{ color: 'var(--mr-vibrant-blue)' }}>
+                    Step {stage.number}
+                  </p>
+                  <h2 className="text-lg font-bold" style={{ color: 'var(--mr-midnight-blue)' }}>
+                    {stage.title}
+                  </h2>
                 </div>
-              )}
+
+                {/* Provenance strip */}
+                <div className="px-6 pt-4">
+                  <ProvenanceStrip {...provenance} />
+                </div>
+
+                {/* Action area */}
+                <div className="px-6 pb-4 flex flex-wrap items-center gap-3">
+                  {stage.apiPropose && canPropose && (
+                    <button
+                      onClick={() => runAction(stage.apiPropose!, 'Proposal generated')}
+                      disabled={loading}
+                      className="px-4 py-2 text-sm font-medium rounded text-white disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--mr-vibrant-blue)', border: 'none', cursor: 'pointer' }}
+                    >
+                      {loading ? 'Generating…' : 'Generate (AI)'}
+                    </button>
+                  )}
+                  {stage.apiApprove && canApprove && (
+                    <button
+                      onClick={() => { setApprovalApiPath(stage.apiApprove!); setApprovalOpen(true) }}
+                      className="px-4 py-2 text-sm font-medium rounded text-white transition-colors"
+                      style={{ background: 'var(--color-success)', border: 'none', cursor: 'pointer' }}
+                    >
+                      Review &amp; Approve
+                    </button>
+                  )}
+                  {stage.apiAction && canAction && (
+                    <button
+                      onClick={() => runAction(stage.apiAction!, 'Action complete')}
+                      disabled={loading}
+                      className="px-4 py-2 text-sm font-medium rounded text-white disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--mr-vibrant-blue)', border: 'none', cursor: 'pointer' }}
+                    >
+                      {loading ? 'Running…' : 'Execute'}
+                    </button>
+                  )}
+                  {stage.isAudit && (
+                    <Link
+                      href="/audit"
+                      className="px-4 py-2 text-sm font-medium rounded text-white"
+                      style={{ background: 'var(--mr-vibrant-blue)', textDecoration: 'none' }}
+                    >
+                      Open Audit Evidence →
+                    </Link>
+                  )}
+                  <Link
+                    href={`/stages/${stage.number}`}
+                    className="text-xs ml-auto"
+                    style={{ color: 'var(--mr-vibrant-blue)' }}
+                  >
+                    View full detail →
+                  </Link>
+                </div>
+
+                {/* Result feedback */}
+                {result && (
+                  <div
+                    className="mx-6 mb-4 p-3 rounded text-xs"
+                    style={{
+                      background: result.startsWith('Error') ? 'rgba(192,57,43,0.08)' : 'rgba(26,124,89,0.08)',
+                      color: result.startsWith('Error') ? 'var(--color-danger)' : 'var(--color-success)',
+                      border: `1px solid ${result.startsWith('Error') ? 'rgba(192,57,43,0.25)' : 'rgba(26,124,89,0.25)'}`,
+                    }}
+                  >
+                    {result}
+                  </div>
+                )}
+
+                {/* Step completion summary */}
+                {isStepDone && (
+                  <div
+                    className="mx-6 mb-4 p-3 rounded text-xs space-y-1"
+                    style={{ background: 'rgba(26,124,89,0.06)', border: '1px solid rgba(26,124,89,0.2)' }}
+                  >
+                    <p className="font-semibold" style={{ color: 'var(--color-success)' }}>
+                      ✓ Step {stage.number} completed
+                    </p>
+                    <p style={{ color: 'var(--color-text-secondary)' }}>
+                      <span className="font-medium" style={{ color: 'var(--mr-midnight-blue)' }}>Source: </span>
+                      {stage.completionSummary.source}
+                    </p>
+                    <p style={{ color: 'var(--color-text-secondary)' }}>
+                      <span className="font-medium" style={{ color: 'var(--mr-midnight-blue)' }}>Change: </span>
+                      {stage.completionSummary.change}
+                    </p>
+                    <p style={{ color: 'var(--color-text-secondary)' }}>
+                      <span className="font-medium" style={{ color: 'var(--mr-midnight-blue)' }}>Evidence: </span>
+                      {stage.completionSummary.evidence}
+                    </p>
+                  </div>
+                )}
+
+                {/* Technical details — collapsed by default */}
+                <div
+                  className="mx-6 mb-4"
+                  style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius)' }}
+                >
+                  <button
+                    onClick={() => setTechnicalOpen(o => !o)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs transition-colors"
+                    style={{
+                      background: technicalOpen ? 'var(--mr-light-grey)' : 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--color-text-muted)',
+                    }}
+                  >
+                    <span className="font-medium">Technical details</span>
+                    <span>{technicalOpen ? '▲' : '▼'}</span>
+                  </button>
+                  {technicalOpen && (
+                    <div
+                      className="px-3 pb-3 text-xs space-y-2"
+                      style={{
+                        borderTop: '1px solid var(--color-border)',
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--color-text-secondary)',
+                        paddingTop: '0.5rem',
+                      }}
+                    >
+                      <div>
+                        <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>System state: </span>
+                        {data?.state ?? '—'}
+                      </div>
+                      <div>
+                        <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>Stage number: </span>
+                        {data?.stageNumber ?? '—'}
+                      </div>
+                      <div>
+                        <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>Can propose: </span>
+                        {String(canPropose)}
+                        {' · '}
+                        <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>Can approve: </span>
+                        {String(canApprove)}
+                        {' · '}
+                        <span className="font-semibold not-italic" style={{ fontFamily: 'var(--font-sans)' }}>Can action: </span>
+                        {String(canAction)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: presenter notes (1/3 width) */}
+            <div
+              className="rounded-lg p-5"
+              style={{
+                background: 'var(--mr-light-blue)',
+                border: '1px solid var(--color-border)',
+              }}
+            >
+              <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--mr-midnight-blue)' }}>
+                Presenter Note
+              </p>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--mr-midnight-blue)', opacity: 0.8 }}>
+                {stage.presenterNote}
+              </p>
             </div>
           </div>
-        </div>
 
-        {/* Right: presenter notes (1/3 width) */}
-        <div
-          className="rounded-lg p-5"
-          style={{
-            background: 'var(--mr-light-blue)',
-            border: '1px solid var(--color-border)',
-          }}
-        >
-          <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--mr-midnight-blue)' }}>
-            Presenter Note
-          </p>
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--mr-midnight-blue)', opacity: 0.8 }}>
-            {stage.presenterNote}
-          </p>
-        </div>
-      </div>
+          {/* ── Prev / Next ──────────────────────────────────────────────── */}
+          <div className="flex justify-between">
+            <button
+              onClick={() => { setActiveStage(s => Math.max(1, s - 1)); setResult(null); setTechnicalOpen(false) }}
+              disabled={activeStage === 1}
+              className="px-4 py-2 text-sm rounded disabled:opacity-30 transition-colors"
+              style={{
+                background: 'var(--mr-light-grey)',
+                color: 'var(--color-text-secondary)',
+                border: '1px solid var(--color-border)',
+                cursor: activeStage === 1 ? 'default' : 'pointer',
+              }}
+            >
+              ← Previous
+            </button>
 
-      {/* ── Prev / Next ──────────────────────────────────────────────── */}
-      <div className="flex justify-between">
-        <button
-          onClick={() => { setActiveStage(s => Math.max(1, s - 1)); setResult(null); setTechnicalOpen(false) }}
-          disabled={activeStage === 1}
-          className="px-4 py-2 text-sm rounded disabled:opacity-30 transition-colors"
-          style={{
-            background: 'var(--mr-light-grey)',
-            color: 'var(--color-text-secondary)',
-            border: '1px solid var(--color-border)',
-            cursor: activeStage === 1 ? 'default' : 'pointer',
-          }}
-        >
-          ← Previous
-        </button>
+            {/* Final step: show evidence actions */}
+            {activeStage === 6 && data?.state === 'DOCS_APPROVED' && (
+              <div className="flex items-center gap-2">
+                <Link href="/audit" className="px-3 py-1.5 text-xs font-medium rounded text-white" style={{ background: 'var(--mr-vibrant-blue)', textDecoration: 'none' }}>
+                  Open complete evidence package
+                </Link>
+                <Link href="/evidence-centre" className="px-3 py-1.5 text-xs font-medium rounded" style={{ background: 'var(--mr-light-grey)', color: 'var(--mr-midnight-blue)', border: '1px solid var(--color-border)', textDecoration: 'none' }}>
+                  Open evidence folder
+                </Link>
+                <Link href="/portfolio" className="px-3 py-1.5 text-xs font-medium rounded" style={{ background: 'var(--mr-light-grey)', color: 'var(--mr-midnight-blue)', border: '1px solid var(--color-border)', textDecoration: 'none' }}>
+                  View portfolio status
+                </Link>
+              </div>
+            )}
 
-        {/* Final step: show evidence actions */}
-        {activeStage === 6 && data?.state === 'DOCS_APPROVED' && (
-          <div className="flex items-center gap-2">
-            <Link href="/audit" className="px-3 py-1.5 text-xs font-medium rounded text-white" style={{ background: 'var(--mr-vibrant-blue)', textDecoration: 'none' }}>
-              Open complete evidence package
-            </Link>
-            <Link href="/evidence-centre" className="px-3 py-1.5 text-xs font-medium rounded" style={{ background: 'var(--mr-light-grey)', color: 'var(--mr-midnight-blue)', border: '1px solid var(--color-border)', textDecoration: 'none' }}>
-              Open evidence folder
-            </Link>
-            <Link href="/portfolio" className="px-3 py-1.5 text-xs font-medium rounded" style={{ background: 'var(--mr-light-grey)', color: 'var(--mr-midnight-blue)', border: '1px solid var(--color-border)', textDecoration: 'none' }}>
-              View portfolio status
-            </Link>
+            <button
+              onClick={() => { setActiveStage(s => Math.min(6, s + 1)); setResult(null); setTechnicalOpen(false) }}
+              disabled={activeStage === 6}
+              className="px-4 py-2 text-sm rounded disabled:opacity-30 transition-colors"
+              style={{
+                background: 'var(--mr-light-grey)',
+                color: 'var(--color-text-secondary)',
+                border: '1px solid var(--color-border)',
+                cursor: activeStage === 6 ? 'default' : 'pointer',
+              }}
+            >
+              Next →
+            </button>
           </div>
-        )}
-
-        <button
-          onClick={() => { setActiveStage(s => Math.min(6, s + 1)); setResult(null); setTechnicalOpen(false) }}
-          disabled={activeStage === 6}
-          className="px-4 py-2 text-sm rounded disabled:opacity-30 transition-colors"
-          style={{
-            background: 'var(--mr-light-grey)',
-            color: 'var(--color-text-secondary)',
-            border: '1px solid var(--color-border)',
-            cursor: activeStage === 6 ? 'default' : 'pointer',
-          }}
-        >
-          Next →
-        </button>
-      </div>
+        </>
+      )}
 
       <ApprovalModal
         isOpen={approvalOpen}

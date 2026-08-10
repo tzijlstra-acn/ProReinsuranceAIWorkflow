@@ -1,5 +1,7 @@
 'use client'
 import { use, useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
+import { AiBadge } from '@/components/AiBadge'
 import { ApprovalModal } from '@/components/ApprovalModal'
 import { ProvenanceBadge } from '@/components/ProvenanceBadge'
 import { ProvenanceStrip } from '@/components/ProvenanceStrip'
@@ -176,8 +178,14 @@ export default function StagePage({ params }: { params: Promise<{ stage: string 
         body: JSON.stringify({ decision, reviewerComment: comment, reviewerName: reviewer }),
       })
       const result = await res.json()
-      setActionResult({ ok: result.ok ?? !result.error, message: result.error ?? `${decision}. New state: ${result.newState}` })
+      const ok = result.ok ?? !result.error
+      setActionResult({ ok, message: result.error ?? `${decision}. New state: ${result.newState}` })
       await fetchData()
+      // If a guided run is waiting for this approval, resume it so the main-page
+      // state machine advances even when approval is done from the detail view.
+      if (decision === 'approved' && ok) {
+        await fetch('/api/guided-run/continue', { method: 'POST' }).catch(() => {})
+      }
     } finally {
       setLoading(false)
       setApprovalOpen(false)
@@ -191,9 +199,35 @@ export default function StagePage({ params }: { params: Promise<{ stage: string 
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--mr-vibrant-blue)' }}>
-          Step {stage}
-        </p>
+        {/* Stage navigator */}
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <Link
+            href="/"
+            style={{
+              fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)',
+              textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px',
+            }}
+          >
+            ← Overview
+          </Link>
+          <span style={{ color: 'var(--color-border)', fontSize: '14px' }}>|</span>
+          {[1, 2, 3, 4, 5, 6].map(n => (
+            <Link
+              key={n}
+              href={`/stages/${n}`}
+              style={{
+                display: 'inline-flex', alignItems: 'center',
+                padding: '3px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                textDecoration: 'none',
+                background: n === stage ? 'var(--mr-vibrant-blue)' : 'var(--mr-light-grey)',
+                color: n === stage ? 'white' : 'var(--color-text-secondary)',
+                border: `1px solid ${n === stage ? 'var(--mr-vibrant-blue)' : 'var(--color-border)'}`,
+              }}
+            >
+              {n}. {['Define', 'Integrate', 'Verify', 'Report', 'Document', 'Prove'][n - 1]}
+            </Link>
+          ))}
+        </div>
         <h1 className="text-2xl font-bold" style={{ color: 'var(--mr-midnight-blue)' }}>{stageTitle(stage)}</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
           Current state: <span style={{ color: 'var(--mr-vibrant-blue)', fontWeight: 600 }}>{data.state}</span>
@@ -418,6 +452,7 @@ function Stage1Content({ data, onAction, onApproval, loading }: { data: DemoData
               <span className={clsx('px-2 py-0.5 text-xs rounded border', v33?.status === 'approved' ? 'bg-[#0A7C59]/10 text-[#0A7C59] border-[#0A7C59]/30' : 'bg-[#003781]/10 text-[#003781] border-[#003781]/30')}>
                 v3.3 {v33?.status === 'approved' ? 'Approved' : 'Proposed'}
               </span>
+              {(v33?.proposedContent || v33?.content) && <AiBadge />}
             </div>
             <pre className="bg-[#F4F6F9] border border-[#D0D7E3] rounded-lg p-4 text-xs text-[#0A7C59] overflow-auto max-h-80 whitespace-pre-wrap">
               {v33?.proposedContent ?? v33?.content ?? 'Not yet generated — click "Generate" above'}
@@ -429,7 +464,10 @@ function Stage1Content({ data, onAction, onApproval, loading }: { data: DemoData
       {/* Control Activity */}
       <div className="bg-white border border-[#D0D7E3] rounded-lg p-6" style={{ boxShadow: '0 1px 3px rgba(0,56,129,0.08)' }}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[#1A1A2E] font-semibold">Control Activity Proposal</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-[#1A1A2E] font-semibold">Control Activity Proposal</h2>
+            {control && <AiBadge />}
+          </div>
           {control?.isDemoData && (
             <span className="px-2 py-0.5 bg-[#B45309]/10 text-[#B45309] text-xs rounded border border-[#B45309]/30">[DEMO DATA]</span>
           )}
@@ -517,7 +555,10 @@ function Stage2Content({ data, onAction, onApproval, loading }: { data: DemoData
       {iac && (
         <div className="bg-white border border-[#D0D7E3] rounded-lg p-6" style={{ boxShadow: '0 1px 3px rgba(0,56,129,0.08)' }}>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[#1A1A2E] font-semibold">Pull Request: {iac.prNumber}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-[#1A1A2E] font-semibold">Pull Request: {iac.prNumber}</h2>
+              <AiBadge />
+            </div>
             <div className="flex items-center gap-2">
               <span className={clsx('px-2 py-0.5 text-xs rounded border',
                 iac.status === 'merged' ? 'bg-[#003781]/10 text-[#003781] border-[#003781]/30' :
@@ -862,12 +903,15 @@ function Stage5Content({ data, onAction, onApproval, loading }: { data: DemoData
                 </span>
               )}
               {displayVersion && (
-                <span className={clsx(
-                  'px-2 py-0.5 text-xs rounded border',
-                  approved ? 'bg-[#0A7C59]/10 text-[#0A7C59] border-[#0A7C59]/30' : 'bg-[#003781]/10 text-[#003781] border-[#003781]/30'
-                )}>
-                  {approved ? 'Approved' : 'Proposed'} v{displayVersion.version}
-                </span>
+                <>
+                  <span className={clsx(
+                    'px-2 py-0.5 text-xs rounded border',
+                    approved ? 'bg-[#0A7C59]/10 text-[#0A7C59] border-[#0A7C59]/30' : 'bg-[#003781]/10 text-[#003781] border-[#003781]/30'
+                  )}>
+                    {approved ? 'Approved' : 'Proposed'} v{displayVersion.version}
+                  </span>
+                  <AiBadge />
+                </>
               )}
               {!displayVersion && (
                 <span className="text-[#4A5568]/60 text-xs">No proposed version yet</span>
@@ -1016,6 +1060,10 @@ function Stage6Content() {
           className="p-4 rounded space-y-3"
           style={{ background: 'var(--mr-light-grey)', border: '1px solid var(--color-border)' }}
         >
+          <div className="flex items-center gap-2 mb-1">
+            <AiBadge />
+            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>AI-generated response</span>
+          </div>
           <p className="text-sm" style={{ color: 'var(--mr-midnight-blue)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
             {answer}
           </p>

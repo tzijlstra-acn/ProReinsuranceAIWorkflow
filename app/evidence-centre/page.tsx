@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import {
   Archive,
   RefreshCw,
@@ -12,8 +13,85 @@ import {
   X,
   Check,
   Loader2,
+  ShieldCheck,
 } from 'lucide-react'
 import { clsx } from 'clsx'
+
+// ---------------------------------------------------------------------------
+// Evidence Package types (new domain)
+// ---------------------------------------------------------------------------
+
+interface EvidencePackage {
+  id: string
+  status: string
+  assembledAt: string | null
+  approvedAt: string | null
+  approvedBy: string | null
+  createdAt: string | null
+  verificationResultIds: string[]
+  evidenceArtifactIds: string[]
+  product: { id: string; name: string } | null
+  requirement: { id: string; articleRef: string; title: string; obligationType: string } | null
+  source: { id: string; shortCode: string; name: string } | null
+}
+
+const EP_STATUS_STYLE: Record<string, { label: string; color: string; bg: string }> = {
+  COMPLETE:    { label: 'Complete',    color: '#0A7C59', bg: '#F0FAF6' },
+  ASSEMBLING:  { label: 'Assembling',  color: '#B45309', bg: '#FFFBEB' },
+  APPROVED:    { label: 'Approved',    color: '#0A7C59', bg: '#F0FAF6' },
+  REJECTED:    { label: 'Rejected',    color: '#E4002B', bg: '#FFF0F3' },
+  DRAFT:       { label: 'Draft',       color: '#4A5568', bg: '#F4F6F9' },
+}
+
+function EvidencePackageCard({ ep }: { ep: EvidencePackage }) {
+  const s = EP_STATUS_STYLE[ep.status] ?? EP_STATUS_STYLE.DRAFT
+  return (
+    <div
+      className="bg-white rounded-lg border p-4"
+      style={{ borderColor: '#D0D7E3', boxShadow: '0 1px 3px rgba(0,56,129,0.06)' }}
+    >
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 flex-shrink-0" style={{ color: s.color }} />
+          <span className="font-semibold text-sm" style={{ color: '#003781' }}>{ep.id}</span>
+        </div>
+        <span
+          className="px-2 py-0.5 text-xs font-semibold rounded flex-shrink-0"
+          style={{ color: s.color, background: s.bg }}
+        >
+          {s.label}
+        </span>
+      </div>
+      {ep.requirement && (
+        <p className="text-sm font-medium mb-0.5" style={{ color: '#1A1A2E' }}>
+          {ep.requirement.articleRef} — {ep.requirement.title}
+        </p>
+      )}
+      <div className="flex items-center gap-3 mt-1 text-xs" style={{ color: '#4A5568' }}>
+        {ep.source && <span className="px-1.5 py-0.5 rounded" style={{ background: '#F4F6F9' }}>{ep.source.shortCode}</span>}
+        {ep.product && <span>{ep.product.name}</span>}
+        <span>{ep.verificationResultIds.length} verifications</span>
+      </div>
+      {ep.approvedAt && ep.approvedBy && (
+        <p className="text-xs mt-2" style={{ color: '#4A5568' }}>
+          Approved by <span className="font-medium">{ep.approvedBy}</span>
+          {' '}on {new Date(ep.approvedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+        </p>
+      )}
+      <div className="mt-3 flex items-center gap-2">
+        {ep.product && (
+          <Link
+            href={`/ddcr/products/${ep.product.id}`}
+            className="text-xs font-medium"
+            style={{ color: '#003781' }}
+          >
+            View in DDCR →
+          </Link>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -757,6 +835,7 @@ export default function EvidenceCentrePage() {
   const [qaAnswer, setQaAnswer] = useState<string | null>(null)
   const [qaCitations, setQaCitations] = useState<Array<{ label: string; path: string; format: string }>>([])
   const [qaLoading, setQaLoading] = useState(false)
+  const [evidencePackages, setEvidencePackages] = useState<EvidencePackage[]>([])
 
   const fetchFiles = useCallback(async () => {
     try {
@@ -773,6 +852,14 @@ export default function EvidenceCentrePage() {
     fetch('/api/evidence-root')
       .then(r => r.json())
       .then(data => setEvidenceRoot(data as EvidenceRoot))
+      .catch(() => null)
+  }, [])
+
+  // Load domain evidence packages
+  useEffect(() => {
+    fetch('/api/evidence-packages')
+      .then(r => r.json())
+      .then((data: EvidencePackage[]) => setEvidencePackages(Array.isArray(data) ? data : []))
       .catch(() => null)
   }, [])
 
@@ -954,6 +1041,23 @@ export default function EvidenceCentrePage() {
 
         {/* Main content */}
         <div className="flex-1 min-w-0 space-y-8">
+
+          {/* Domain Evidence Packages — shown in "All" view */}
+          {selectedGroup === 'All' && !searchQuery && evidencePackages.length > 0 && (
+            <section>
+              <div className="flex items-center gap-3 mb-3">
+                <h2 className="text-sm font-semibold" style={{ color: '#0f1e32' }}>Compliance Evidence Packages</h2>
+                <span className="text-xs" style={{ color: '#A0ADB9' }}>{evidencePackages.length} {evidencePackages.length === 1 ? 'package' : 'packages'}</span>
+                <div className="flex-1 h-px" style={{ background: '#0A7C59', opacity: 0.3 }} />
+                <Link href="/ddcr" className="text-xs" style={{ color: '#003781' }}>Open DDCR →</Link>
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                {evidencePackages.map(ep => (
+                  <EvidencePackageCard key={ep.id} ep={ep} />
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Key Evidence hero section — shown only in "All" view when files exist */}
           {selectedGroup === 'All' && !searchQuery && keyEvidenceFiles.length > 0 && (
