@@ -559,6 +559,14 @@ Last updated: Q3 2024`,
       description: 'Regulation (EU) 2024/1689 laying down harmonised rules on artificial intelligence.',
       eurLexUrl: 'https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng',
     },
+    {
+      id: 'REG-SII', shortCode: 'Solvency II',
+      name: 'Solvency II Directive',
+      jurisdiction: 'EU', status: 'active',
+      effectiveDate: '2016-01-01',
+      description: 'Directive 2009/138/EC on the taking-up and pursuit of the business of Insurance and Reinsurance.',
+      eurLexUrl: 'https://eur-lex.europa.eu/eli/dir/2009/138/oj/eng',
+    },
   ]
   regSources.forEach(s => db.insert(regulatorySources).values({ ...s, createdAt: now }).run())
 
@@ -568,6 +576,7 @@ Last updated: Q3 2024`,
     { id: 'REGV-NIS2-2022', sourceId: 'REG-NIS2', version: '2022/2555', publishedAt: '2022-12-27', changeType: 'initial', isActive: true },
     { id: 'REGV-GDPR-2016', sourceId: 'REG-GDPR', version: '2016/679', publishedAt: '2016-05-04', changeType: 'initial', isActive: true },
     { id: 'REGV-EUAIA-2024', sourceId: 'REG-EUAIA', version: '2024/1689', publishedAt: '2024-07-12', changeType: 'initial', isActive: true },
+    { id: 'REGV-SII-2009', sourceId: 'REG-SII', version: '2009/138', publishedAt: '2009-11-25', changeType: 'initial', isActive: true },
   ]
   regVersions.forEach(v => db.insert(regulatoryVersions).values({ ...v, createdAt: now }).run())
 
@@ -625,16 +634,112 @@ Last updated: Q3 2024`,
       applicabilityScope: JSON.stringify({ productType: ['AI_SYSTEM'], aiRiskCategory: ['HIGH'] }),
       status: 'active',
     },
+    {
+      id: 'SII-ORSA-001',
+      sourceId: 'REG-SII', versionId: 'REGV-SII-2009',
+      articleRef: 'Art. 45',
+      title: 'Own Risk and Solvency Assessment (ORSA)',
+      description: 'Insurance and reinsurance undertakings shall conduct an own risk and solvency assessment covering the overall solvency needs, compliance with capital requirements and significant deviation from assumptions used in the SCR calculation.',
+      obligationType: 'GOVERNANCE', obligationLevel: 'MANDATORY',
+      applicabilityScope: JSON.stringify({ entityType: ['INSURANCE', 'REINSURANCE'] }),
+      status: 'active',
+    },
   ]
   regRequirements.forEach(r => db.insert(regulatoryRequirements).values({ ...r, createdAt: now }).run())
 
   // ── Internal Documents ────────────────────────────────────────────────────
   const internalDocs = [
-    { id: 'IDOC-BR-GUIDELINE', type: 'GUIDELINE', title: 'BR Guideline — Backup & Restore', owner: 'Platform Engineering Lead', status: 'active', version: '3.2', linkedDocumentId: null },
-    { id: 'IDOC-SEC-POLICY', type: 'POLICY', title: 'Information Security Policy', owner: 'CISO', status: 'active', version: '2.1', linkedDocumentId: null },
-    { id: 'IDOC-INC-PROC', type: 'PROCEDURE', title: 'Incident Management Procedure', owner: 'IT Risk & Compliance', status: 'active', version: '1.4', linkedDocumentId: null },
-    { id: 'IDOC-DATA-RECORDS', type: 'STANDARD', title: 'Data Processing Records Standard', owner: 'DPO', status: 'active', version: '1.0', linkedDocumentId: null },
-    { id: 'IDOC-BR-CONTROL', type: 'CONTROL', title: 'Backup Job Configuration Control (BR0039)', owner: 'Platform Engineering Lead', status: 'active', version: '2.1', linkedDocumentId: null },
+    { id: 'IDOC-BR-GUIDELINE', type: 'GUIDELINE', title: 'BR Guideline — Backup & Restore', owner: 'Platform Engineering Lead', status: 'active', version: '3.2', content: null, linkedDocumentId: null },
+    { id: 'IDOC-SEC-POLICY', type: 'POLICY', title: 'Information Security Policy', owner: 'CISO', status: 'active', version: '2.1', content: null, linkedDocumentId: null },
+    { id: 'IDOC-INC-PROC', type: 'PROCEDURE', title: 'Incident Management Procedure', owner: 'IT Risk & Compliance', status: 'active', version: '1.4', content: null, linkedDocumentId: null },
+    { id: 'IDOC-DATA-RECORDS', type: 'STANDARD', title: 'Data Processing Records Standard', owner: 'DPO', status: 'active', version: '1.0', content: null, linkedDocumentId: null },
+    { id: 'IDOC-BR-CONTROL', type: 'CONTROL', title: 'Backup Job Configuration Control (BR0039)', owner: 'Platform Engineering Lead', status: 'active', version: '2.1', content: null, linkedDocumentId: null },
+    {
+      id: 'DOC-SDD-001', type: 'SYSTEM_DESIGN', title: 'System Design Document — IT App X', owner: 'Platform Engineering Lead', status: 'active', version: '2.4', linkedDocumentId: null,
+      content: `IT APP X — SYSTEM DESIGN DOCUMENT v2.4
+
+1. OVERVIEW
+IT App X is a claims processing application deployed on Azure OneCloud. It processes reinsurance claims and associated personal data for Munich Re Reinsurance Company.
+
+2. ARCHITECTURE
+- Application tier: Azure App Service (West Europe)
+- Database tier: Azure SQL Database (Geo-replication: NOT CONFIGURED)
+- Storage: Azure Blob Storage (LRS — locally redundant)
+- Identity: Azure Active Directory
+
+3. BACKUP & RECOVERY CONFIGURATION
+3.1 Current Backup Strategy
+Backup is configured via Azure Recovery Services Vault using LocallyRedundant storage (LRS).
+NOTE: Geo-redundant storage is required per DORA Art.12 — NOT YET IMPLEMENTED. See gap PG-002.
+RTO: 4 hours (not formally tested). RPO: 24 hours (not formally tested).
+
+4. SECURITY ARCHITECTURE
+Standard Azure security controls applied. Network segmentation via Azure Virtual Network.
+Incident detection: Azure Monitor alerts configured. Post-incident review process: NOT DOCUMENTED.
+
+5. COMPLIANCE NOTES
+Open gaps: PG-001 (geo-redundancy), PG-002 (SDD not updated), PG-003 (post-incident review).`,
+    },
+    {
+      id: 'DOC-OM-001', type: 'OPERATING_MANUAL', title: 'Operating Manual — IT App X', owner: 'Platform Engineering Lead', status: 'active', version: '1.3', linkedDocumentId: null,
+      content: `IT APP X — OPERATING MANUAL v1.3
+
+1. DEPLOYMENT & OPERATIONS
+IT App X is operated by the Claims Processing Platform Team on Azure OneCloud (West Europe).
+On-call rotation managed via PagerDuty.
+
+2. BACKUP PROCEDURES
+2.1 Scheduled Backup
+Automated Azure Backup runs daily at 02:00 UTC.
+Retention: 30 days (daily), 12 weeks (weekly).
+Storage: Azure Recovery Services Vault (LocallyRedundant).
+OUTSTANDING: Must be upgraded to GeoRedundant per DORA Art.12. Pending implementation.
+
+2.2 Restore Procedure
+1. Open Azure Portal → Recovery Services Vault → rsv-itappx-prod-we
+2. Select Backup Items → Azure Virtual Machine
+3. Select restore point (latest or PITR)
+4. Initiate restore to original or alternate location
+Estimated restore time: 2–4 hours.
+
+3. INCIDENT RESPONSE
+Initial escalation: PagerDuty → Claims Platform Team → Platform Engineering Lead
+Severity classification: P1 (system unavailable), P2 (degraded), P3 (minor)
+NOTE: Post-incident review process is NOT FORMALLY DEFINED. Remediation required per NIS2 Art.21.`,
+    },
+    {
+      id: 'DOC-IAC-001', type: 'IAC', title: 'IaC — Azure Recovery Services Vault (IT App X)', owner: 'Cloud Engineering Team', status: 'active', version: '1.1', linkedDocumentId: null,
+      content: `# Azure Recovery Services Vault — IT App X
+# Terraform v1.1 | WARNING: LocallyRedundant — DORA Art.12 non-compliant
+
+resource "azurerm_recovery_services_vault" "it_app_x" {
+  name                = "rsv-itappx-prod-we"
+  location            = "westeurope"
+  resource_group_name = "rg-itappx-prod"
+  sku                 = "Standard"
+
+  # DORA Art.12 requires GeoRedundant — must change from LocallyRedundant
+  storage_mode_type   = "LocallyRedundant"  # TODO: change to "GeoRedundant"
+
+  soft_delete_enabled = true
+  tags = {
+    environment = "production"
+    owner       = "platform-engineering"
+    compliance  = "dora-non-compliant"
+  }
+}
+
+resource "azurerm_backup_policy_vm" "daily" {
+  name                = "bp-itappx-daily"
+  resource_group_name = "rg-itappx-prod"
+  recovery_vault_name = azurerm_recovery_services_vault.it_app_x.name
+  backup {
+    frequency = "Daily"
+    time      = "02:00"
+  }
+  retention_daily { count = 30 }
+}`,
+    },
   ]
   internalDocs.forEach(d => db.insert(internalDocuments).values({ ...d, createdAt: now, updatedAt: now }).run())
 
@@ -646,6 +751,13 @@ Last updated: Q3 2024`,
     { id: 'RDM-004', requirementId: 'NIS2-SECURITY-001', documentId: 'IDOC-INC-PROC', coverageStatus: 'PARTIAL', notes: 'Incident procedure lacks formal containment and recovery sections.' },
     { id: 'RDM-005', requirementId: 'GDPR-RECORDS-001', documentId: 'IDOC-DATA-RECORDS', coverageStatus: 'FULL', notes: 'Data processing records standard fully addresses Art. 30 obligations.' },
     { id: 'RDM-006', requirementId: 'EUAIA-INVENTORY-001', documentId: 'IDOC-SEC-POLICY', coverageStatus: 'NONE', notes: 'Not applicable — IT App X is not an AI system.' },
+    // Product-specific engineering docs — DORA Art.12 (geo-redundancy)
+    { id: 'RDM-007', requirementId: 'DORA-BACKUP-001', documentId: 'DOC-SDD-001', coverageStatus: 'PARTIAL', notes: 'SDD v2.4 Section 3.1 acknowledges geo-redundancy gap but does not document the GeoRedundant vault configuration.' },
+    { id: 'RDM-008', requirementId: 'DORA-BACKUP-001', documentId: 'DOC-OM-001', coverageStatus: 'PARTIAL', notes: 'Operating Manual Section 2.1 documents LocallyRedundant backup — must be updated to GeoRedundant procedures and RTO/RPO targets.' },
+    { id: 'RDM-009', requirementId: 'DORA-BACKUP-001', documentId: 'DOC-IAC-001', coverageStatus: 'NONE', notes: 'Terraform config uses LocallyRedundant storage. Must be changed to GeoRedundant per approved control CC-001.' },
+    // Product-specific engineering docs — NIS2 Art.21 (incident handling)
+    { id: 'RDM-010', requirementId: 'NIS2-SECURITY-001', documentId: 'DOC-SDD-001', coverageStatus: 'PARTIAL', notes: 'SDD Section 4 describes security controls but lacks formal incident detection boundaries and security architecture documentation.' },
+    { id: 'RDM-011', requirementId: 'NIS2-SECURITY-001', documentId: 'DOC-OM-001', coverageStatus: 'PARTIAL', notes: 'Operating Manual Section 3 does not define a post-incident review process as required by NIS2 Art.21(2)(b).' },
   ]
   rdMappings.forEach(m => db.insert(requirementDocumentMappings).values(m).run())
 
@@ -1869,11 +1981,11 @@ Last updated: Q3 2024`,
   console.log('  - 6 value assumptions')
   console.log('  - 1 demo run (BASELINE state)')
   console.log('  ── Multi-regulation domain model ──')
-  console.log('  - 4 regulatory sources (DORA, NIS2, GDPR, EU AI Act)')
+  console.log('  - 5 regulatory sources (DORA, NIS2, GDPR, EU AI Act, Solvency II)')
   console.log('  - 4 regulatory versions')
   console.log('  - 4 regulatory requirements')
-  console.log('  - 5 internal documents')
-  console.log('  - 6 requirement → document mappings')
+  console.log('  - 8 internal documents (policies, procedures + SDD, Operating Manual, IaC per product)')
+  console.log('  - 11 requirement → document mappings')
   console.log('  - 2 compliance gaps (DORA backup, NIS2 process)')
   console.log('  - 2 control changes (both approved and published)')
   console.log('  - 5 products (IT App X, Trading Platform, Customer Portal, Internal Analytics, AI Underwriting Engine)')
@@ -1887,6 +1999,7 @@ Last updated: Q3 2024`,
   console.log('  - 5 evidence packages (GDPR×PROD-X, DORA/NIS2/GDPR×PROD-Y, DORA×PROD-Z)')
   console.log('  - 16 requirement status history entries')
   console.log('  - 37 DDCR reporting records (requirement + regulation + product level × 5 products)')
+  console.log('  - DDCR federated cockpit items (PRODUCT_HUB + SERVICENOW + ARCHER + GitLab sources)')
 }
 
 seed()

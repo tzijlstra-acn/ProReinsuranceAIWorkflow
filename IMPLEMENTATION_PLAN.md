@@ -89,3 +89,43 @@ Regulation → Standard → Control → Code → Verification → Reporting → 
 - [ ] E2E test (happy path)
 - [ ] Lint + type check passing
 - [ ] All docs (README, architecture, demo-script, value-model, data-dictionary, assumptions)
+
+---
+
+## Board Demo Refactor (2026-Q3)
+
+### Goal
+Reframe the demonstrator as a board-ready story with three explicit levels, a persistent end-to-end flow ribbon, and client footage placeholders.
+
+### Three levels
+| Level | Label | Purpose |
+|---|---|---|
+| STEP 1 | Existing foundation | What Munich Re already has — three activities with manual handovers |
+| STEP 2 | Connected pilot | One coherent case from regulatory change to DDCR COMPLIANT, MITRA + MAYA clearly labelled |
+| NORTH STAR 2030 | Vision | Full-screen animated view — five regulatory sources → end-to-end orchestration → enterprise DDCR |
+
+### Implementation completed ✅
+- [x] `app/demo/page.tsx` — full rewrite: flow ribbon, level selector, Step 1 panels, Step 2 case + activity tabs, North Star 2030 view
+- [x] `lib/terminology.ts` — single source of truth for all UI labels
+- [x] `data/client-assets.ts` — 9-slot Munich Re recording manifest
+- [x] `docs/MUNICH_RE_TERMINOLOGY.md` — approved terminology glossary
+- [x] `docs/TERMINOLOGY_DECISIONS.md` — open MAYA/MITRA confirmation items
+- [x] `docs/MUNICH_RE_ASSET_REQUESTS.md` — 9 detailed recording requests
+- [x] `docs/DEMO_STORY.md` — three-chapter narrative
+- [x] `app/product-hub/page.tsx` — action cockpit with MAYA/MITRA buttons
+- [x] `app/api/product-hub/inbox/route.ts` — published control changes + stage derivation
+- [x] `app/api/product-hub/products/[id]/maya/route.ts` — document generation via AI
+- [x] `app/api/product-hub/products/[id]/mitra/route.ts` — gap assessment via AI
+- [x] Solvency II added as 5th regulatory source in `lib/db/seed.ts`
+- [x] `__tests__/nis2-incident-handling.test.ts` — 7 tests covering NIS2 Art. 21(2)(b) incident handling workflow (non-backup scenario)
+- [x] Product Hub "MITRA" labels corrected to "MAYA" per approved terminology
+
+### Open items
+- Client footage: 9 recordings listed in `docs/MUNICH_RE_ASSET_REQUESTS.md` — add `videoUrl` to `data/client-assets.ts` once received
+- MAYA/MITRA final confirmation from Munich Re — see `docs/TERMINOLOGY_DECISIONS.md`
+- Pre-existing TS error in `app/api/portfolio/compliance/route.ts:35` (boolean/number comparison) — not introduced in this refactor
+
+### Terminology rule (enforced)
+- **MITRA** = Compliance Hub only (regulatory analysis, policy/control gap analysis)
+- **MAYA** = Product Hub only (work-product analysis, documentation, migration, remediation)
+- Never interchangeable. All UI labels sourced from `lib/terminology.ts`.

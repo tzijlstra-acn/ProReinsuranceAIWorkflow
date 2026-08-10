@@ -121,6 +121,11 @@ export interface AiProvider {
     documents: Array<{ id: string; title: string; type: string; content: string | null }>,
     existingControl: { id: string; title: string; description: string; steps: string[]; acceptanceCriteria: string[] } | null
   ): Promise<LinkedProposal>
+  answerEvidenceChatMessage(
+    message: string,
+    context: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>
+  ): Promise<string>
 }
 
 export interface AuditContext {
@@ -326,6 +331,7 @@ class NoAiProvider implements AiProvider {
   async scanRegulatoryIntelligence(): Promise<RegulatoryIntelligenceScan> { return this.fail() }
   async proposeDocumentUpdate(): Promise<DocumentUpdateProposal> { return this.fail() }
   async proposeLinkedChanges(): Promise<LinkedProposal> { return this.fail() }
+  async answerEvidenceChatMessage(): Promise<string> { return this.fail() }
 }
 
 // ─── Rate-limit helpers ───────────────────────────────────────────────────────
@@ -887,6 +893,34 @@ Return only the JSON object.`
       }),
       provenance: this.provenance(model),
     }
+  }
+
+  async answerEvidenceChatMessage(
+    message: string,
+    context: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>
+  ): Promise<string> {
+    await throttle('gpt-4o')
+    const system = `You are the Evidence Centre AI for the Automation of Compliance platform.
+You have access to the current state of all compliance data: products, regulatory requirements, gaps, control changes, evidence packages and status history.
+Answer questions accurately based on the data provided. Be specific — reference product names, article references, status values and dates from the data.
+If something cannot be determined from the data, say so clearly.
+Keep answers concise but complete. Use plain text, not JSON.`
+
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: system },
+      { role: 'user', content: `Here is the current platform data:\n\n${context}` },
+      { role: 'assistant', content: 'I have reviewed the platform data. I am ready to answer your questions.' },
+      ...history.map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
+      { role: 'user', content: message },
+    ]
+
+    const resp = await withRetry(() =>
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      this.client.chat.completions.create({ model: 'gpt-4o', messages, max_tokens: 1024 })
+    )
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    return (resp.choices[0]?.message?.content as string | undefined) ?? 'No response generated.'
   }
 }
 

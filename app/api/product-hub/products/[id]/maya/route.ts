@@ -86,6 +86,7 @@ export async function POST(
           controlChangeId,
           documentId: doc.id,
           documentTitle: doc.title,
+          documentType: doc.type,
           proposedContent: proposal.proposedContent,
           changeSummary: proposal.changeSummary,
           addedClauses: proposal.addedClauses,
